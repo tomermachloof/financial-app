@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  direction: rtl;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 110%;
+  background-color: #F0F4F8;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+#root {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Scrollable content area */
+.page-content {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 24px;
+}
+
+/* Hide scrollbar but keep scroll */
+.page-content::-webkit-scrollbar {
+  display: none;
+}
+
+/* Number inputs: keep LTR for numbers */
+input[type="number"] {
+  direction: ltr;
+  text-align: right;
+}
+
+/* Smooth transitions */
+.transition-all {
+  transition: all 0.2s ease;
+}
+
+/* Card shadow */
+.card {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 1px 8px rgba(0,0,0,0.08);
+}
+
+/* Pulse animation for urgent items */
+@keyframes pulse-green {
+  0%, 100% { background-color: #D1FAE5; }
+  50% { background-color: #A7F3D0; }
+}
+.pulse-urgent {
+  animation: pulse-green 1.5s ease-in-out infinite;
+}
+
+/* Top nav safe area (iOS notch) */
+.top-nav {
+  padding-top: env(safe-area-inset-top, 0px);
+}
