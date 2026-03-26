@@ -470,7 +470,7 @@ export default function QuickAddModal({ onClose }) {
       className="fixed inset-0 z-50 flex items-end justify-center bg-black bg-opacity-40"
       onClick={ev => { if (ev.target === ev.currentTarget) onClose() }}
     >
-      <div className="bg-white w-full max-w-md rounded-3xl mb-4" style={{ maxHeight: '88vh', overflowY: 'auto', paddingBottom: 'env(safe-area-inset-bottom, 20px)' }}>
+      <div className="bg-white w-full max-w-md rounded-3xl mb-12" style={{ maxHeight: '88vh', overflowY: 'auto', paddingBottom: 'env(safe-area-inset-bottom, 20px)' }}>
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
           {step !== 'pick'
             ? <button onClick={() => pick('pick') || setStep('pick')} className="text-blue-500 text-sm font-medium">← חזרה</button>
