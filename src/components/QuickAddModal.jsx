@@ -62,11 +62,12 @@ export default function QuickAddModal({ onClose }) {
       case 'friend_loan': {
         const amount = parseFloat(fv('amount'))
         if (!fv('lenderName') || !amount || !fv('repayDate')) return
+        const receivedDate = fv('receivedDate') || new Date().toISOString().split('T')[0]
+        // Debt we owe
         addDebt({ name: fv('lenderName'), amount, type: 'we_owe', expectedDate: fv('repayDate'), notes: 'הלוואה אישית' })
-        if (fv('accountId')) {
-          const acc = accounts.find(a => a.id === fv('accountId'))
-          if (acc) updateAccount(fv('accountId'), { balance: (acc.balance || 0) + amount })
-        }
+        // Receipt event (green plus) — user confirms it to update balance
+        addFutureIncome({ name: `הלוואה מ${fv('lenderName')}`, amount, expectedDate: receivedDate, accountId: fv('accountId') || null })
+        // Repayment event (red minus)
         addFutureIncome({ name: `החזר ל${fv('lenderName')}`, amount: -amount, expectedDate: fv('repayDate'), isPayment: true, accountId: fv('accountId') || null })
         flash(); break
       }
@@ -178,6 +179,7 @@ export default function QuickAddModal({ onClose }) {
       case 'friend_loan': return (<>
         <F label="שם המלווה"><Inp placeholder="לדוגמא: אליעזר" value={fv('lenderName')} onChange={e => sv('lenderName', e.target.value)} /></F>
         <F label="סכום (₪)"><Inp type="number" placeholder="20000" value={fv('amount')} onChange={e => sv('amount', e.target.value)} /></F>
+        <F label="תאריך קבלה"><Inp type="date" value={fv('receivedDate') || new Date().toISOString().split('T')[0]} onChange={e => sv('receivedDate', e.target.value)} /></F>
         <F label="תאריך החזר"><Inp type="date" value={fv('repayDate')} onChange={e => sv('repayDate', e.target.value)} /></F>
         <F label="לאיזה חשבון נכנס הכסף">
           <Sel value={fv('accountId')} onChange={e => sv('accountId', e.target.value)}>
