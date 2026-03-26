@@ -20,7 +20,7 @@ const RANGE_OPTIONS = [
 ]
 
 export default function Dashboard() {
-  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, reminders, doneReminder, deleteReminder } = useStore()
+  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, reminders, doneReminder, deleteReminder, deleteFutureIncome } = useStore()
 
   const [rangeDays, setRangeDays] = useState(14)
   const [filterType, setFilterType] = useState('all') // 'all' | 'income' | 'expense'
@@ -621,6 +621,7 @@ export default function Dashboard() {
                     if (debt) updateDebt(e.debtId, { amount: Math.max(0, (debt.amount || 0) - Math.abs(e.amount)) })
                   }
                 }}
+                onDelete={e.type === 'future' ? () => deleteFutureIncome(e.id) : null}
               />
             ))}
             {friendPendingPayments.map(({ loan, monthKey, nextCharge }) => (
@@ -652,6 +653,10 @@ export default function Dashboard() {
                 confirmed
                 onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')}
                 onUnconfirm={() => unconfirmEvent(e.id, e._confirmedRo ? e.originalDateStr : todayStr)}
+                onDelete={e.type === 'future' ? () => {
+                  unconfirmEvent(e.id, e._confirmedRo ? e.originalDateStr : todayStr)
+                  deleteFutureIncome(e.id)
+                } : null}
               />
             ))}
           </Section>
@@ -901,7 +906,7 @@ function Section({ title, icon, subtitle, toolbar, children }) {
   )
 }
 
-function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowAccounts }) {
+function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowAccounts, onDelete }) {
   const days = daysUntil(event.date instanceof Date ? event.date.toISOString() : String(event.date))
   const isIncome = event.amount > 0
   const c = colorMap[event.color] || colorMap.gray
@@ -980,6 +985,15 @@ function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowA
               title="בטל אישור"
             >
               ↩
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 hover:bg-red-100 hover:text-red-500 transition-colors flex-shrink-0"
+              title="מחק אירוע"
+            >
+              ✕
             </button>
           )}
         </div>
