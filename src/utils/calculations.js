@@ -356,7 +356,9 @@ export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, d
       d.setHours(0, 0, 0, 0)
       if (d >= today && d <= limit) {
         const isPayment = f.isPayment || (f.amount || 0) < 0
-        events.push({ id: f.id, name: f.name, amount: f.amount || 0, date: d, type: isPayment ? 'expense' : 'future', color: isPayment ? 'red' : 'blue' })
+        const ev = { id: f.id, name: f.name, amount: f.amount || 0, date: d, type: isPayment ? 'expense' : 'future', color: isPayment ? 'red' : 'blue' }
+        if (f.accountId) ev.accountId = f.accountId
+        events.push(ev)
       }
     }
   })
