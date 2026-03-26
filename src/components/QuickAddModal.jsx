@@ -3,7 +3,7 @@ import useStore from '../store/useStore'
 
 const ACTIONS = [
   { id: 'friend_loan',    icon: '🤝', label: 'הלוואה מחבר',      desc: 'קיבלתי כסף ואחזיר בתאריך' },
-  { id: 'future_income',  icon: '💰', label: 'הכנסה צפויה',       desc: 'כסף שאקבל בתאריך מסוים' },
+  { id: 'future_income',  icon: '💰', label: 'יצירת הכנסה',        desc: 'כסף חד-פעמי שאקבל בתאריך מסוים' },
   { id: 'future_payment', icon: '📤', label: 'תשלום עתידי',       desc: 'הוצאה חד-פעמית עתידית' },
   { id: 'update_debt',    icon: '📝', label: 'עדכון חוב',         desc: 'שנה יתרת חוב קיים' },
   { id: 'update_balance', icon: '🏦', label: 'עדכון יתרה',        desc: 'תקן יתרת חשבון' },
