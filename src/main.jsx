@@ -4,12 +4,12 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import './index.css'
 import { loadState } from './lib/supabase'
-import useStore from './store/useStore'
+import useStore, { patchCloudState } from './store/useStore'
 
 // Load state from Supabase before rendering
 loadState().then(cloudState => {
   if (cloudState) {
-    useStore.setState(cloudState)
+    useStore.setState(patchCloudState(cloudState))
   }
   ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>

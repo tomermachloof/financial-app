@@ -389,4 +389,19 @@ const useStore = create(
   )
 )
 
+// Patch a cloud-loaded state to add any items introduced in migrations.
+// Called in main.jsx after loadState(), because useStore.setState() bypasses migrate().
+export function patchCloudState(state) {
+  if (!state) return state
+  let s = { ...state }
+
+  // r7: ליאת — החזר חוב (v40)
+  const rental = s.rentalIncome || []
+  if (!rental.some(r => r.id === 'r7')) {
+    s.rentalIncome = [...rental, { id: 'r7', name: 'ליאת — החזר חוב', amount: 1000, chargeDay: 10, debtId: 'd2', note: 'מקזז מחוב ליאת' }]
+  }
+
+  return s
+}
+
 export default useStore
