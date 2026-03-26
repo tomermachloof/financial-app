@@ -228,6 +228,12 @@ export default function Dashboard() {
   ]
   const soonEvents = allEvents.filter(e => e.dateStr > todayStr)
 
+  // הכנסות עתידיות חד-פעמיות מעבר לטווח — תמיד מוצגות
+  const extraFutureIncome = futureIncome
+    .filter(f => f.status === 'pending' && f.expectedDate && !f.isWorkLog)
+    .map(f => { const d = new Date(f.expectedDate); d.setHours(0,0,0,0); return { ...f, date: d, dateStr: d.toISOString().split('T')[0], type: f.isPayment || f.amount < 0 ? 'expense' : 'future', color: f.isPayment || f.amount < 0 ? 'red' : 'blue', balanceAfter: 0, balanceAfterUSD: 0 } })
+    .filter(f => f.dateStr > todayStr && !soonEvents.some(e => e.id === f.id))
+
   const isIncome  = e => e.type === 'rental' || e.type === 'future'
   const isExpense = e => e.type === 'expense' || e.type === 'loan'
   const applyFilter = arr => {
@@ -240,7 +246,7 @@ export default function Dashboard() {
 
   const visibleToday     = todayEvents
   const visibleConfirmed = confirmedToday
-  const visibleSoon      = applyFilter(soonEvents)
+  const visibleSoon      = applyFilter([...soonEvents, ...extraFutureIncome].sort((a,b) => a.dateStr.localeCompare(b.dateStr)))
 
   // Friend payments that reminder was sent but money not received yet — show in היום section
   const friendPendingPayments = loans.filter(l => l.paidByFriend).flatMap(loan => {
