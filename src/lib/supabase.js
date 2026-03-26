@@ -18,7 +18,11 @@ export async function loadState() {
 }
 
 export async function saveState(state) {
+  // Save only data fields, not functions
+  const serializable = Object.fromEntries(
+    Object.entries(state).filter(([, v]) => typeof v !== 'function')
+  )
   await supabase
     .from('app_state')
-    .upsert({ id: STATE_ID, state, updated_at: new Date().toISOString() })
+    .upsert({ id: STATE_ID, state: serializable, updated_at: new Date().toISOString() })
 }
