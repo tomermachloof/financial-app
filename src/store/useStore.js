@@ -174,6 +174,9 @@ const useStore = create(
         set(s => ({ reminders: (s.reminders || []).filter(r => r.id !== id) })),
       doneReminder: (id) =>
         set(s => ({ reminders: (s.reminders || []).map(r => r.id === id ? { ...r, done: true } : r) })),
+      // monthly reminder: dismiss for current month only
+      doneReminderMonth: (id, monthKey) =>
+        set(s => ({ reminders: (s.reminders || []).map(r => r.id === id ? { ...r, doneMonths: [...(r.doneMonths || []), monthKey] } : r) })),
 
       // ── Confirmed Events ──────────────────────
       confirmedEvents: [],

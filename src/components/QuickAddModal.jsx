@@ -2,8 +2,9 @@ import { useState } from 'react'
 import useStore from '../store/useStore'
 
 const ACTIONS = [
+  { id: 'reminder',       icon: '🔔', label: 'תזכורת',            desc: 'חד-פעמית או חודשית חוזרת' },
   { id: 'friend_loan',    icon: '🤝', label: 'הלוואה מחבר',      desc: 'קיבלתי כסף ואחזיר בתאריך' },
-  { id: 'future_income',  icon: '💰', label: 'יצירת הכנסה',        desc: 'כסף חד-פעמי שאקבל בתאריך מסוים' },
+  { id: 'future_income',  icon: '💰', label: 'יצירת הכנסה',       desc: 'כסף חד-פעמי שאקבל בתאריך מסוים' },
   { id: 'future_payment', icon: '📤', label: 'תשלום עתידי',       desc: 'הוצאה חד-פעמית עתידית' },
   { id: 'update_debt',    icon: '📝', label: 'עדכון חוב',         desc: 'שנה יתרת חוב קיים' },
   { id: 'update_balance', icon: '🏦', label: 'עדכון יתרה',        desc: 'תקן יתרת חשבון' },
@@ -12,7 +13,6 @@ const ACTIONS = [
   { id: 'transfer',       icon: '↔️', label: 'העברה בין חשבונות', desc: 'הזז כסף בין חשבונות' },
   { id: 'change_date',    icon: '📅', label: 'שינוי תאריך',       desc: 'דחה או הקדם אירוע' },
   { id: 'past_event',     icon: '⚡', label: 'אירוע שכבר קרה',    desc: 'הכנסה/הוצאה לא מתוכננת' },
-  { id: 'reminder',       icon: '🔔', label: 'תזכורת ידנית',      desc: 'תזכורת לתאריך מסוים' },
   { id: 'update_loan',    icon: '🏠', label: 'עדכון הלוואה',      desc: 'שנה ריבית, יתרה או תשלום' },
 ]
 
@@ -202,11 +202,17 @@ export default function QuickAddModal({ onClose }) {
       }
 
       case 'reminder': {
+        const isMonthly = fv('reminderType') === 'monthly'
         const errs = []
         if (!fv('text')) errs.push('text')
-        if (!fv('date')) errs.push('date')
+        if (isMonthly && !fv('day'))  errs.push('day')
+        if (!isMonthly && !fv('date')) errs.push('date')
         if (errs.length) { setErrors(errs); return }
-        addReminder({ text: fv('text'), date: fv('date') })
+        if (isMonthly) {
+          addReminder({ text: fv('text'), type: 'monthly', day: parseInt(fv('day')), doneMonths: [] })
+        } else {
+          addReminder({ text: fv('text'), type: 'once', date: fv('date') })
+        }
         flash(); break
       }
 
@@ -425,14 +431,38 @@ export default function QuickAddModal({ onClose }) {
         </F>
       </>)
 
-      case 'reminder': return (<>
-        <F label="תזכורת" name="text" errors={errors}>
-          <Inp err={e('text')} value={fv('text')} onChange={ev => sv('text', ev.target.value)} />
-        </F>
-        <F label="תאריך" name="date" errors={errors}>
-          <Inp err={e('date')} type="date" value={fv('date')} onChange={ev => sv('date', ev.target.value)} />
-        </F>
-      </>)
+      case 'reminder': {
+        const isMonthly = fv('reminderType') === 'monthly'
+        return (<>
+          <div className="flex gap-2 mb-4">
+            {['once', 'monthly'].map(t => (
+              <button
+                key={t}
+                onClick={() => sv('reminderType', t)}
+                className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                  (fv('reminderType') || 'once') === t
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-600 border-gray-200'
+                }`}
+              >
+                {t === 'once' ? 'חד פעמית' : 'חודשית חוזרת'}
+              </button>
+            ))}
+          </div>
+          <F label="תוכן התזכורת" name="text" errors={errors}>
+            <Inp err={e('text')} value={fv('text')} onChange={ev => sv('text', ev.target.value)} />
+          </F>
+          {isMonthly ? (
+            <F label="יום בחודש (1–31)" name="day" errors={errors}>
+              <Inp err={e('day')} type="number" min="1" max="31" value={fv('day')} onChange={ev => sv('day', ev.target.value)} />
+            </F>
+          ) : (
+            <F label="תאריך" name="date" errors={errors}>
+              <Inp err={e('date')} type="date" value={fv('date')} onChange={ev => sv('date', ev.target.value)} />
+            </F>
+          )}
+        </>)
+      }
 
       case 'update_loan': {
         const selLoan  = loans.find(l => l.id === fv('loanId'))
