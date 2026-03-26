@@ -172,8 +172,8 @@ export default function Dashboard() {
     if (!ilsDangerEvent && _runILS < 0) ilsDangerEvent = { ...e, balanceAfter: _runILS }
   }
 
-  // Fetch from yesterday to catch unconfirmed rollover events
-  const allRaw = getUpcomingEvents(loans, expenses, rentalIncome, futureIncome, rangeDays, usdRate, 1)
+  // Fetch up to 31 days back to catch unconfirmed rollover events
+  const allRaw = getUpcomingEvents(loans, expenses, rentalIncome, futureIncome, rangeDays, usdRate, 31)
 
   // Per-account running balances (native currency)
   const runningAccBal = {}
@@ -209,19 +209,19 @@ export default function Dashboard() {
     return { ...e, balanceAfter: runningILS, balanceAfterUSD: runningUSD, dateStr, accountName, accountStatus }
   })
 
-  // Rolled-over: yesterday's unconfirmed events → show today
+  // Rolled-over: any past unconfirmed events → show today
   const rolledOver = allEvents
-    .filter(e => e.dateStr === yesterdayStr && !isConfirmed(e.id, yesterdayStr))
-    .map(e => ({ ...e, date: today, dateStr: todayStr, rolledOver: true, id: e.id + '_ro' }))
+    .filter(e => e.dateStr < todayStr && !isConfirmed(e.id, e.dateStr))
+    .map(e => ({ ...e, date: today, dateStr: todayStr, rolledOver: true, originalDateStr: e.dateStr, id: e.id + '_ro' }))
 
   const todayEvents = [
     ...rolledOver,
     ...allEvents.filter(e => e.dateStr === todayStr && !isConfirmed(e.id, todayStr)),
   ]
-  const isConfirmedRo = (id) => confirmedEvents.some(e => e.id === id && e.date === yesterdayStr && e._ro)
+  const isConfirmedRo = (id, dateStr) => confirmedEvents.some(e => e.id === id && e.date === dateStr && e._ro)
   const confirmedRolledOver = allEvents
-    .filter(e => e.dateStr === yesterdayStr && isConfirmedRo(e.id))
-    .map(e => ({ ...e, date: today, dateStr: todayStr, _confirmedRo: true }))
+    .filter(e => e.dateStr < todayStr && isConfirmedRo(e.id, e.dateStr))
+    .map(e => ({ ...e, date: today, dateStr: todayStr, _confirmedRo: true, originalDateStr: e.dateStr }))
   const confirmedToday = [
     ...allEvents.filter(e => e.dateStr === todayStr && isConfirmed(e.id, todayStr)),
     ...confirmedRolledOver,
@@ -600,7 +600,7 @@ export default function Dashboard() {
                 onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')}
                 onConfirm={() => {
                   const id      = e.rolledOver ? e.id.replace('_ro','') : e.id
-                  const dateStr = e.rolledOver ? yesterdayStr : todayStr
+                  const dateStr = e.rolledOver ? e.originalDateStr : todayStr
                   const delta   = calcDelta(e)
                   confirmEvent(id, dateStr, e.accountId || null, delta, e.currency === 'USD', e.rolledOver)
                 }}
@@ -634,7 +634,7 @@ export default function Dashboard() {
                 event={e}
                 confirmed
                 onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')}
-                onUnconfirm={() => unconfirmEvent(e.id, e._confirmedRo ? yesterdayStr : todayStr)}
+                onUnconfirm={() => unconfirmEvent(e.id, e._confirmedRo ? e.originalDateStr : todayStr)}
               />
             ))}
           </Section>
