@@ -20,7 +20,7 @@ const RANGE_OPTIONS = [
 ]
 
 export default function Dashboard() {
-  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, reminders, doneReminder, deleteReminder, deleteFutureIncome } = useStore()
+  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, reminders, doneReminder, deleteReminder, deleteFutureIncome, dismissedEvents, dismissEvent } = useStore()
 
   const [rangeDays, setRangeDays] = useState(14)
   const [filterType, setFilterType] = useState('all') // 'all' | 'income' | 'expense'
@@ -214,10 +214,12 @@ export default function Dashboard() {
     .filter(e => e.dateStr < todayStr && !isConfirmed(e.id, e.dateStr) && e.amount > 0)
     .map(e => ({ ...e, date: today, dateStr: todayStr, rolledOver: true, originalDateStr: e.dateStr, id: e.id + '_ro' }))
 
+  const isDismissed = (id, date) => (dismissedEvents || []).some(d => d.id === id && d.date === date)
+
   const todayEvents = [
     ...rolledOver,
     ...allEvents.filter(e => e.dateStr === todayStr && !isConfirmed(e.id, todayStr)),
-  ]
+  ].filter(e => !isDismissed(e.id, todayStr))
   const isConfirmedRo = (id, origDateStr) => confirmedEvents.some(e => e.id === id && e.date === origDateStr && e._ro)
   const confirmedRolledOver = allEvents
     .filter(e => e.dateStr < todayStr && e.amount > 0 && isConfirmedRo(e.id, e.dateStr))
@@ -225,7 +227,7 @@ export default function Dashboard() {
   const confirmedToday = [
     ...allEvents.filter(e => e.dateStr === todayStr && isConfirmed(e.id, todayStr)),
     ...confirmedRolledOver,
-  ]
+  ].filter(e => !isDismissed(e.id, todayStr))
   const soonEvents = allEvents.filter(e => e.dateStr > todayStr)
 
   const isIncome  = e => e.type === 'rental' || e.type === 'future'
@@ -621,7 +623,10 @@ export default function Dashboard() {
                     if (debt) updateDebt(e.debtId, { amount: Math.max(0, (debt.amount || 0) - Math.abs(e.amount)) })
                   }
                 }}
-                onDelete={e.type === 'future' ? () => deleteFutureIncome(e.id) : null}
+                onDelete={() => {
+                  if (e.type === 'future') deleteFutureIncome(e.id)
+                  else dismissEvent(e.id, todayStr)
+                }}
               />
             ))}
             {friendPendingPayments.map(({ loan, monthKey, nextCharge }) => (
@@ -653,10 +658,11 @@ export default function Dashboard() {
                 confirmed
                 onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')}
                 onUnconfirm={() => unconfirmEvent(e.id, e._confirmedRo ? e.originalDateStr : todayStr)}
-                onDelete={e.type === 'future' ? () => {
+                onDelete={() => {
                   unconfirmEvent(e.id, e._confirmedRo ? e.originalDateStr : todayStr)
-                  deleteFutureIncome(e.id)
-                } : null}
+                  if (e.type === 'future') deleteFutureIncome(e.id)
+                  else dismissEvent(e.id, todayStr)
+                }}
               />
             ))}
           </Section>

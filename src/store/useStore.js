@@ -161,6 +161,11 @@ const useStore = create(
       deleteDebt: (id) =>
         set(s => ({ debts: s.debts.filter(d => d.id !== id) })),
 
+      // ── Dismissed Events (hidden from today without deleting) ────────────
+      dismissedEvents: [], // [{ id, date }]
+      dismissEvent: (id, date) =>
+        set(s => ({ dismissedEvents: [...(s.dismissedEvents || []), { id, date }] })),
+
       // ── Reminders ─────────────────────────────
       reminders: [],
       addReminder: (reminder) =>
@@ -410,8 +415,8 @@ export function patchCloudState(state) {
     s.rentalIncome = [...rental, { id: 'r7', name: 'ליאת — החזר חוב', amount: 1000, chargeDay: 10, debtId: 'd2', note: 'מקזז מחוב ליאת' }]
   }
 
-  // reminders (new field)
   if (!s.reminders) s.reminders = []
+  if (!s.dismissedEvents) s.dismissedEvents = []
 
   return s
 }
