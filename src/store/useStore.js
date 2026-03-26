@@ -346,6 +346,7 @@ const useStore = create(
               ...(!ids.includes('r4') ? [{ id: 'r4', name: 'Omri Tesla',             amount: 0, usdAmount: 980,  currency: 'USD', chargeDay: 1,  notes: '', accountId: 'ba12', note: 'Chase Business' }] : []),
               ...(!ids.includes('r5') ? [{ id: 'r5', name: 'שליו ריבית',    amount: 0, usdAmount: 1050, currency: 'USD', chargeDay: 24, notes: '', accountId: 'ba12', note: 'Chase Business' }] : []),
               ...(!ids.includes('r6') ? [{ id: 'r6', name: 'קצבת ילדים',   amount: 173, chargeDay: 17, notes: '', accountId: 'ba4', note: 'יעל בינלאומי' }] : []),
+              ...(!ids.includes('r7') ? [{ id: 'r7', name: 'ליאת — החזר חוב', amount: 1000, chargeDay: 10, debtId: 'd2', note: 'מקזז מחוב ליאת' }] : []),
             ]
             return [...existing, ...toAdd]
               .map(r => rentalUpdates[r.id] ? { ...r, ...rentalUpdates[r.id] } : r)

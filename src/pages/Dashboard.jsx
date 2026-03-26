@@ -20,7 +20,7 @@ const RANGE_OPTIONS = [
 ]
 
 export default function Dashboard() {
-  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount } = useStore()
+  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount } = useStore()
 
   const [rangeDays, setRangeDays] = useState(14)
   const [filterType, setFilterType] = useState('all') // 'all' | 'income' | 'expense'
@@ -172,8 +172,8 @@ export default function Dashboard() {
     if (!ilsDangerEvent && _runILS < 0) ilsDangerEvent = { ...e, balanceAfter: _runILS }
   }
 
-  // Fetch up to 31 days back to catch unconfirmed rollover events
-  const allRaw = getUpcomingEvents(loans, expenses, rentalIncome, futureIncome, rangeDays, usdRate, 31)
+  // Fetch 5 days back to catch unconfirmed income rollover events
+  const allRaw = getUpcomingEvents(loans, expenses, rentalIncome, futureIncome, rangeDays, usdRate, 5)
 
   // Per-account running balances (native currency)
   const runningAccBal = {}
@@ -209,18 +209,18 @@ export default function Dashboard() {
     return { ...e, balanceAfter: runningILS, balanceAfterUSD: runningUSD, dateStr, accountName, accountStatus }
   })
 
-  // Rolled-over: any past unconfirmed events → show today
+  // Rolled-over: past unconfirmed INCOME events only (amount > 0 = money coming in)
   const rolledOver = allEvents
-    .filter(e => e.dateStr < todayStr && !isConfirmed(e.id, e.dateStr))
+    .filter(e => e.dateStr < todayStr && !isConfirmed(e.id, e.dateStr) && e.amount > 0)
     .map(e => ({ ...e, date: today, dateStr: todayStr, rolledOver: true, originalDateStr: e.dateStr, id: e.id + '_ro' }))
 
   const todayEvents = [
     ...rolledOver,
     ...allEvents.filter(e => e.dateStr === todayStr && !isConfirmed(e.id, todayStr)),
   ]
-  const isConfirmedRo = (id, dateStr) => confirmedEvents.some(e => e.id === id && e.date === dateStr && e._ro)
+  const isConfirmedRo = (id, origDateStr) => confirmedEvents.some(e => e.id === id && e.date === origDateStr && e._ro)
   const confirmedRolledOver = allEvents
-    .filter(e => e.dateStr < todayStr && isConfirmedRo(e.id, e.dateStr))
+    .filter(e => e.dateStr < todayStr && e.amount > 0 && isConfirmedRo(e.id, e.dateStr))
     .map(e => ({ ...e, date: today, dateStr: todayStr, _confirmedRo: true, originalDateStr: e.dateStr }))
   const confirmedToday = [
     ...allEvents.filter(e => e.dateStr === todayStr && isConfirmed(e.id, todayStr)),
@@ -603,6 +603,10 @@ export default function Dashboard() {
                   const dateStr = e.rolledOver ? e.originalDateStr : todayStr
                   const delta   = calcDelta(e)
                   confirmEvent(id, dateStr, e.accountId || null, delta, e.currency === 'USD', e.rolledOver)
+                  if (e.debtId) {
+                    const debt = debts.find(d => d.id === e.debtId)
+                    if (debt) updateDebt(e.debtId, { amount: Math.max(0, (debt.amount || 0) - Math.abs(e.amount)) })
+                  }
                 }}
               />
             ))}

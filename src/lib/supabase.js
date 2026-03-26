@@ -13,7 +13,8 @@ export async function loadState() {
     .select('state')
     .eq('id', STATE_ID)
     .single()
-  if (error || !data) return null
+  if (error || !data) { console.warn('[Supabase loadState failed]', error); return null }
+  console.log('[Supabase loaded] usdRate:', data.state?.usdRate, 'accounts ILS:', data.state?.accounts?.reduce((s,a)=>s+(a.balance||0),0))
   return data.state
 }
 
@@ -22,7 +23,9 @@ export async function saveState(state) {
   const serializable = Object.fromEntries(
     Object.entries(state).filter(([, v]) => typeof v !== 'function')
   )
-  await supabase
+  const { error } = await supabase
     .from('app_state')
     .upsert({ id: STATE_ID, state: serializable, updated_at: new Date().toISOString() })
+  if (error) console.error('[Supabase saveState error]', error)
+  else console.log('[Supabase saved] at', new Date().toLocaleTimeString())
 }

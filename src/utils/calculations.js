@@ -335,6 +335,7 @@ export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, d
           if (item.paidViaCredit)   event.paidViaCredit    = true
           if (item.paidByFriend)    event.paidByFriend     = true
           if (item.effectiveAmount != null) event.effectiveAmount = item.effectiveAmount
+          if (item.debtId)          event.debtId          = item.debtId
           events.push(event)
         }
         month++

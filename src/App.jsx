@@ -14,16 +14,27 @@ function useCloudSync() {
   const state = useStore()
   const timerRef = useRef(null)
   const isFirst = useRef(true)
+  const stateRef = useRef(state)
+  stateRef.current = state
 
+  // Save on every state change (debounced)
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
     const delay = isFirst.current ? 3000 : 2000
     isFirst.current = false
     timerRef.current = setTimeout(() => {
-      saveState(state)
+      saveState(stateRef.current)
     }, delay)
     return () => clearTimeout(timerRef.current)
   }, [state])
+
+  // Also save every 5 minutes regardless of changes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      saveState(stateRef.current)
+    }, 5 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [])
 }
 
 export default function App() {
