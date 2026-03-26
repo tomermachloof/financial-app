@@ -20,7 +20,7 @@ const RANGE_OPTIONS = [
 ]
 
 export default function Dashboard() {
-  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount } = useStore()
+  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, reminders, doneReminder, deleteReminder } = useStore()
 
   const [rangeDays, setRangeDays] = useState(14)
   const [filterType, setFilterType] = useState('all') // 'all' | 'income' | 'expense'
@@ -592,6 +592,19 @@ export default function Dashboard() {
                 <button onClick={confirmCCRolledOver} className="bg-indigo-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl active:opacity-70">✓ אשר הכל</button>
               </div>
             )}
+            {/* Today's reminders */}
+            {(reminders || []).filter(r => !r.done && r.date === todayStr).map(r => (
+              <div key={r.id} className="flex items-center justify-between px-4 py-3 bg-yellow-50">
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 rounded-full flex-shrink-0 bg-yellow-400" />
+                  <p className="text-sm font-medium text-gray-800">🔔 {r.text}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => doneReminder(r.id)} className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded-lg font-medium">✓</button>
+                  <button onClick={() => deleteReminder(r.id)} className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium">מחק</button>
+                </div>
+              </div>
+            ))}
             {visibleToday.map(e => (
               <EventRow
                 key={e.id}

@@ -1,5 +1,5 @@
 import { Routes, Route } from 'react-router-dom'
-import { useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import BottomNav    from './components/BottomNav'
 import Dashboard    from './pages/Dashboard'
 import CalendarPage from './pages/CalendarPage'
@@ -7,6 +7,7 @@ import LoansPage    from './pages/LoansPage'
 import IncomePage   from './pages/IncomePage'
 import AccountsPage from './pages/AccountsPage'
 import useLiveRates from './hooks/useLiveRates'
+import QuickAddModal from './components/QuickAddModal'
 import useStore from './store/useStore'
 import { saveState } from './lib/supabase'
 
@@ -40,6 +41,7 @@ function useCloudSync() {
 export default function App() {
   useLiveRates()
   useCloudSync()
+  const [showQuickAdd, setShowQuickAdd] = useState(false)
   return (
     <>
       <BottomNav />
@@ -50,6 +52,14 @@ export default function App() {
         <Route path="/income"   element={<IncomePage   />} />
         <Route path="/accounts" element={<AccountsPage />} />
       </Routes>
+      {showQuickAdd && <QuickAddModal onClose={() => setShowQuickAdd(false)} />}
+      <button
+        onClick={() => setShowQuickAdd(true)}
+        className="fixed bottom-20 left-4 z-40 w-14 h-14 bg-blue-600 rounded-full shadow-xl flex items-center justify-center text-white text-3xl font-light active:scale-90 transition-transform"
+        style={{ boxShadow: '0 4px 20px rgba(37,99,235,0.4)' }}
+      >
+        ＋
+      </button>
     </>
   )
 }

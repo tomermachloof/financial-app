@@ -161,6 +161,15 @@ const useStore = create(
       deleteDebt: (id) =>
         set(s => ({ debts: s.debts.filter(d => d.id !== id) })),
 
+      // ── Reminders ─────────────────────────────
+      reminders: [],
+      addReminder: (reminder) =>
+        set(s => ({ reminders: [...(s.reminders || []), { ...reminder, id: 'rem' + Date.now(), done: false }] })),
+      deleteReminder: (id) =>
+        set(s => ({ reminders: (s.reminders || []).filter(r => r.id !== id) })),
+      doneReminder: (id) =>
+        set(s => ({ reminders: (s.reminders || []).map(r => r.id === id ? { ...r, done: true } : r) })),
+
       // ── Confirmed Events ──────────────────────
       confirmedEvents: [],
       confirmEvent: (id, date, accountId, delta, isUSD, ro) =>
@@ -400,6 +409,9 @@ export function patchCloudState(state) {
   if (!rental.some(r => r.id === 'r7')) {
     s.rentalIncome = [...rental, { id: 'r7', name: 'ליאת — החזר חוב', amount: 1000, chargeDay: 10, debtId: 'd2', note: 'מקזז מחוב ליאת' }]
   }
+
+  // reminders (new field)
+  if (!s.reminders) s.reminders = []
 
   return s
 }
