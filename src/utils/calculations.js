@@ -354,7 +354,7 @@ export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, d
     if (f.status === 'pending' && f.expectedDate) {
       const d = new Date(f.expectedDate)
       d.setHours(0, 0, 0, 0)
-      if (d >= today && d <= limit) {
+      if (d >= today) {
         const isPayment = f.isPayment || (f.amount || 0) < 0
         events.push({ id: f.id, name: f.name, amount: f.amount || 0, date: d, type: isPayment ? 'expense' : 'future', color: isPayment ? 'red' : 'blue' })
       }

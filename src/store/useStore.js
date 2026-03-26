@@ -206,7 +206,7 @@ const useStore = create(
     }),
     {
       name: 'financial-app-v14',
-      version: 39,
+      version: 40,
       migrate: (state) => {
         // ── v19: accountId fields + e1→e1a/e1b split ──────────────────────
         const loanUpdates = {
