@@ -84,6 +84,7 @@ export default function QuickAddModal({ onClose }) {
         if (!fv('lenderName')) errs.push('lenderName')
         if (!amount)           errs.push('amount')
         if (!fv('repayDate'))  errs.push('repayDate')
+        if (!fv('accountId'))  errs.push('accountId')
         if (errs.length) { setErrors(errs); return }
         const receivedDate = fv('receivedDate') || todayStr
         addDebt({ name: fv('lenderName'), amount, type: 'we_owe', expectedDate: fv('repayDate'), notes: 'הלוואה אישית' })
@@ -240,8 +241,8 @@ export default function QuickAddModal({ onClose }) {
           <Inp err={e('repayDate')} type="date" value={fv('repayDate')} onChange={ev => sv('repayDate', ev.target.value)} />
         </F>
         <F label="לאיזה חשבון נכנס הכסף" name="accountId" errors={errors}>
-          <Sel value={fv('accountId')} onChange={ev => sv('accountId', ev.target.value)}>
-            <option value="">לא מקושר לחשבון</option>
+          <Sel err={e('accountId')} value={fv('accountId')} onChange={ev => sv('accountId', ev.target.value)}>
+            <option value="">בחר חשבון</option>
             {ilsAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </Sel>
         </F>
