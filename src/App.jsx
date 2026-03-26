@@ -13,12 +13,15 @@ import { saveState } from './lib/supabase'
 function useCloudSync() {
   const state = useStore()
   const timerRef = useRef(null)
+  const isFirst = useRef(true)
 
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
+    const delay = isFirst.current ? 3000 : 2000
+    isFirst.current = false
     timerRef.current = setTimeout(() => {
       saveState(state)
-    }, 2000) // save 2 seconds after last change
+    }, delay)
     return () => clearTimeout(timerRef.current)
   }, [state])
 }
