@@ -2,7 +2,7 @@
   "name": "ניהול פיננסי - תומר ויעל",
   "short_name": "כלכלה",
   "description": "ניהול פיננסי אישי",
-  "start_url": "/",
+  "start_url": "/financial-app/",
   "display": "standalone",
   "background_color": "#F0F4F8",
   "theme_color": "#2563EB",
