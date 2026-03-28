@@ -32,7 +32,7 @@ const DEBT_TYPE_OPTIONS = [
 
 
 const BANK_META = {
-  'פועלים':   { card: 'border-r-[6px] border-green-600  bg-green-50',  header: 'bg-green-600',  text: 'text-white' },
+  'פועלים':   { card: 'border-r-[6px] border-red-600    bg-red-50',    header: 'bg-red-600',    text: 'text-white' },
   'לאומי':    { card: 'border-r-[6px] border-sky-500    bg-sky-50',    header: 'bg-sky-500',    text: 'text-white' },
   'בינלאומי': { card: 'border-r-[6px] border-blue-800   bg-blue-50',   header: 'bg-blue-800',   text: 'text-white' },
   'מזרחי':    { card: 'border-r-[6px] border-orange-500 bg-orange-50', header: 'bg-orange-500', text: 'text-white' },
