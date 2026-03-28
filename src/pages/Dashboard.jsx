@@ -9,6 +9,7 @@ import {
   calcMonthlyOut, calcMonthlyIn, getUpcomingEvents, calcRemainingBalance,
 } from '../utils/calculations'
 import { formatILS, formatDateShort, daysUntil } from '../utils/formatters'
+import { getPushStatus, subscribeToPush, unsubscribeFromPush } from '../lib/pushNotifications'
 
 const colorMap = {
   red:    { bg: 'bg-red-50',    text: 'text-red-600',    dot: 'bg-red-400'    },
@@ -44,6 +45,20 @@ export default function Dashboard() {
   const [editTarget, setEditTarget] = useState(null)
   const [editDraft, setEditDraft] = useState({})
   const [invUpdateRem, setInvUpdateRem] = useState(null) // { remId, invId, newValue }
+  const [pushStatus, setPushStatus] = useState('loading')
+
+  useEffect(() => { getPushStatus().then(setPushStatus) }, [])
+
+  const handleTogglePush = async () => {
+    if (pushStatus === 'subscribed') {
+      await unsubscribeFromPush()
+      setPushStatus('unsubscribed')
+    } else {
+      const result = await subscribeToPush()
+      if (result.ok) setPushStatus('subscribed')
+      else alert('שגיאה: ' + result.error)
+    }
+  }
 
 
   const liquidity    = calcTotalLiquidity(accounts, usdRate)
@@ -326,14 +341,25 @@ export default function Dashboard() {
               {today.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}
             </p>
           </div>
-          <button onClick={() => setShowAlert(v => !v)} className="relative focus:outline-none active:scale-90 transition-transform">
-            <span className="text-2xl">🔔</span>
-            {alertCount > 0 && (
-              <span className="absolute -top-1 -left-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
-                {alertCount}
-              </span>
+          <div className="flex items-center gap-3">
+            {pushStatus !== 'loading' && pushStatus !== 'unsupported' && (
+              <button
+                onClick={handleTogglePush}
+                title={pushStatus === 'subscribed' ? 'בטל התראות' : 'הפעל התראות לטלפון'}
+                className="focus:outline-none active:scale-90 transition-transform"
+              >
+                <span className="text-2xl">{pushStatus === 'subscribed' ? '📲' : '🔕'}</span>
+              </button>
             )}
-          </button>
+            <button onClick={() => setShowAlert(v => !v)} className="relative focus:outline-none active:scale-90 transition-transform">
+              <span className="text-2xl">🔔</span>
+              {alertCount > 0 && (
+                <span className="absolute -top-1 -left-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
+                  {alertCount}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* key metric */}

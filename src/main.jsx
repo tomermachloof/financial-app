@@ -34,6 +34,13 @@ const checkVersion = async () => {
 }
 checkVersion()
 
+// Register Service Worker for push notifications
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js')
+    .then(reg => console.log('[SW] registered', reg.scope))
+    .catch(err => console.warn('[SW] registration failed', err))
+}
+
 const renderApp = () => ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary>

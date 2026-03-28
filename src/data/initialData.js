@@ -28,7 +28,7 @@ export const initialInvestments = [
   // ── יעל — עדכני מדוח פברואר 2026 ──
   { id: 'inv2',  name: "חיסכון טהור פניקס יעל",        value: 301269,  type: 'pension',    owner: 'יעל'   },
   { id: 'inv4',  name: "קרן השתלמות מור יעל",          value: 182269,  type: 'savings',    owner: 'יעל'   },
-  { id: 'inv12', name: "קופת גמל אביגיל",              value: 0,       type: 'savings',    owner: 'יעל'   },
+  { id: 'inv12', name: "קופת גמל אביגיל",              value: 7000,    type: 'savings',    owner: 'יעל'   },
   // ── כספים אצל אחרים (שער חי) ──
   { id: 'inv10', name: "גיא משה",  value: 0, type: 'cash', owner: 'משותף', currency: 'EUR', originalAmount: 123600 },
   { id: 'inv11', name: "שליו",     value: 0, type: 'cash', owner: 'משותף', currency: 'USD', originalAmount: 42000  },
