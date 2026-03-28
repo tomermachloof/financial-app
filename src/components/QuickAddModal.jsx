@@ -1,19 +1,20 @@
 import { useState } from 'react'
 import useStore from '../store/useStore'
+import MiniCalendar from './MiniCalendar'
+import DayOfMonthPicker from './DayOfMonthPicker'
 
 const ACTIONS = [
-  { id: 'reminder',       icon: '🔔', label: 'תזכורת',            desc: 'חד-פעמית או חודשית חוזרת' },
-  { id: 'friend_loan',    icon: '🤝', label: 'הלוואה מחבר',      desc: 'קיבלתי כסף ואחזיר בתאריך' },
-  { id: 'future_income',  icon: '💰', label: 'יצירת הכנסה',       desc: 'כסף חד-פעמי שאקבל בתאריך מסוים' },
-  { id: 'future_payment', icon: '📤', label: 'תשלום עתידי',       desc: 'הוצאה חד-פעמית עתידית' },
-  { id: 'update_debt',    icon: '📝', label: 'עדכון חוב',         desc: 'שנה יתרת חוב קיים' },
-  { id: 'update_balance', icon: '🏦', label: 'עדכון יתרה',        desc: 'תקן יתרת חשבון' },
-  { id: 'offset',         icon: '⚖️', label: 'קיזוז חובות',       desc: 'חיוב מקזז חיוב' },
-  { id: 'split_income',   icon: '✂️', label: 'פיצול הכנסה',       desc: 'חלק כסף בין חשבונות' },
-  { id: 'transfer',       icon: '↔️', label: 'העברה בין חשבונות', desc: 'הזז כסף בין חשבונות' },
-  { id: 'change_date',    icon: '📅', label: 'שינוי תאריך',       desc: 'דחה או הקדם אירוע' },
-  { id: 'past_event',     icon: '⚡', label: 'אירוע שכבר קרה',    desc: 'הכנסה/הוצאה לא מתוכננת' },
-  { id: 'update_loan',    icon: '🏠', label: 'עדכון הלוואה',      desc: 'שנה ריבית, יתרה או תשלום' },
+  { id: 'reminder',      icon: '🔔', label: 'תזכורת',            desc: 'חד-פעמית או חודשית חוזרת' },
+  { id: 'income_expense', icon: '💸', label: 'הכנסה / הוצאה',    desc: 'חד פעמי או חוזר כל חודש' },
+  { id: 'friend_loan',   icon: '🤝', label: 'הלוואה מחבר',      desc: 'קיבלתי כסף ואחזיר בתאריך' },
+  { id: 'update_debt',   icon: '📝', label: 'עדכון חוב',         desc: 'שנה יתרת חוב קיים' },
+  { id: 'update_balance',    icon: '🏦', label: 'עדכון יתרה',        desc: 'תקן יתרת חשבון' },
+  { id: 'offset',            icon: '⚖️', label: 'קיזוז חובות',       desc: 'חיוב מקזז חיוב' },
+  { id: 'split_income',      icon: '✂️', label: 'פיצול הכנסה',       desc: 'חלק כסף בין חשבונות' },
+  { id: 'transfer',          icon: '↔️', label: 'העברה בין חשבונות', desc: 'הזז כסף בין חשבונות' },
+  { id: 'past_event',        icon: '⚡', label: 'אירוע שכבר קרה',    desc: 'הכנסה/הוצאה לא מתוכננת' },
+  { id: 'update_loan',       icon: '🏠', label: 'עדכון הלוואה',      desc: 'שנה ריבית, יתרה או תשלום' },
+  { id: 'update_investment',  icon: '📈', label: 'עדכון השקעה',      desc: 'עדכן שווי תיק, פנסיה או חיסכון' },
 ]
 
 const F = ({ label, name, errors, children }) => {
@@ -45,18 +46,27 @@ const Sel = ({ err, children, ...props }) => (
   </select>
 )
 
-export default function QuickAddModal({ onClose }) {
+export default function QuickAddModal({ onClose, editTarget }) {
   const {
-    accounts, debts, loans, futureIncome,
+    accounts, debts, loans, futureIncome, investments,
     addDebt, updateDebt,
     updateAccount,
     addFutureIncome, updateFutureIncome,
+    addRentalIncome, updateRentalIncome,
     updateLoan,
+    updateInvestment,
+    updateExpense,
     addReminder,
+    addExpense,
   } = useStore()
 
-  const [step, setStep]     = useState('pick')
-  const [form, setForm]     = useState({})
+  const initForm = () => {
+    if (!editTarget) return {}
+    return editTarget.form || {}
+  }
+
+  const [step, setStep]     = useState(editTarget ? editTarget.action : 'pick')
+  const [form, setForm]     = useState(initForm)
   const [splits, setSplits] = useState([{ accountId: '', amount: '' }])
   const [saved, setSaved]   = useState(false)
   const [errors, setErrors] = useState([])
@@ -70,7 +80,7 @@ export default function QuickAddModal({ onClose }) {
 
   const pick = (id) => { setForm({}); setSplits([{ accountId: '', amount: '' }]); setSaved(false); setErrors([]); setStep(id) }
 
-  const flash = () => { setSaved(true); setTimeout(() => { setSaved(false); setStep('pick') }, 900) }
+  const flash = () => { setSaved(true); setTimeout(() => { setSaved(false); if (editTarget) onClose(); else setStep('pick') }, 900) }
 
   const fail = (...fields) => { setErrors(fields); return false }
 
@@ -86,31 +96,56 @@ export default function QuickAddModal({ onClose }) {
         if (!fv('repayDate'))  errs.push('repayDate')
         if (!fv('accountId'))  errs.push('accountId')
         if (errs.length) { setErrors(errs); return }
+        if (editTarget?.item) {
+          const ef = editTarget.form
+          const receivedDate = fv('receivedDate') || todayStr
+          if (ef._receiveId) updateFutureIncome(ef._receiveId, { name: `הלוואה מ${fv('lenderName')}`, amount, expectedDate: receivedDate, accountId: fv('accountId') || null })
+          if (ef._repayId)   updateFutureIncome(ef._repayId,   { name: `החזר ל${fv('lenderName')}`, amount: -amount, expectedDate: fv('repayDate'), accountId: fv('repayAccountId') || null })
+          if (ef._debtId)    updateDebt(ef._debtId, { name: fv('lenderName'), amount, expectedDate: fv('repayDate') })
+          flash(); break
+        }
         const receivedDate = fv('receivedDate') || todayStr
         addDebt({ name: fv('lenderName'), amount, type: 'we_owe', expectedDate: fv('repayDate'), notes: 'הלוואה אישית' })
         addFutureIncome({ name: `הלוואה מ${fv('lenderName')}`, amount, expectedDate: receivedDate, accountId: fv('accountId') || null })
-        addFutureIncome({ name: `החזר ל${fv('lenderName')}`, amount: -amount, expectedDate: fv('repayDate'), isPayment: true, accountId: fv('accountId') || null })
+        addFutureIncome({ name: `החזר ל${fv('lenderName')}`, amount: -amount, expectedDate: fv('repayDate'), isPayment: true, accountId: fv('repayAccountId') || null })
         flash(); break
       }
 
-      case 'future_income': {
-        const amount = parseFloat(fv('amount'))
+      case 'income_expense': {
+        const isMonthly = fv('freq') === 'monthly'
+        const isIncome  = (fv('kind') || 'expense') === 'income'
+        const amount    = parseFloat(fv('amount'))
         const errs = []
         if (!fv('name')) errs.push('name')
         if (!amount)     errs.push('amount')
+        if (isMonthly && !fv('chargeDay')) errs.push('chargeDay')
+        if (!isMonthly && !isIncome && !fv('date')) errs.push('date')
         if (errs.length) { setErrors(errs); return }
-        addFutureIncome({ name: fv('name'), amount, expectedDate: fv('expectedDate') || null, accountId: fv('accountId') || null })
-        flash(); break
-      }
-
-      case 'future_payment': {
-        const amount = parseFloat(fv('amount'))
-        const errs = []
-        if (!fv('name'))         errs.push('name')
-        if (!amount)             errs.push('amount')
-        if (!fv('expectedDate')) errs.push('expectedDate')
-        if (errs.length) { setErrors(errs); return }
-        addFutureIncome({ name: fv('name'), amount: -amount, expectedDate: fv('expectedDate'), isPayment: true, accountId: fv('accountId') || null })
+        if (editTarget?.item) {
+          const { type, item } = editTarget
+          if (type === 'expense') {
+            const expUpd = item.currency === 'USD'
+              ? { name: fv('name'), usdAmount: amount, chargeDay: parseInt(fv('chargeDay')), accountId: fv('accountId') || null, destAccountId: fv('destAccountId') || null }
+              : { name: fv('name'), amount, chargeDay: parseInt(fv('chargeDay')), accountId: fv('accountId') || null, destAccountId: fv('destAccountId') || null }
+            updateExpense(item.id, expUpd)
+          } else if (type === 'rental') {
+            const upd = { name: fv('name'), chargeDay: parseInt(fv('chargeDay')), accountId: fv('accountId') || null }
+            if (item.currency === 'USD') upd.usdAmount = amount; else upd.amount = amount
+            updateRentalIncome(item.id, upd)
+          } else if (type === 'future') {
+            updateFutureIncome(item.id, { name: fv('name'), amount: item.isPayment ? -amount : amount, expectedDate: fv('date') || null, accountId: fv('accountId') || null })
+          }
+          flash(); break
+        }
+        if (isMonthly && isIncome) {
+          addRentalIncome({ name: fv('name'), amount, chargeDay: parseInt(fv('chargeDay')), accountId: fv('accountId') || null })
+        } else if (isMonthly && !isIncome) {
+          addExpense({ name: fv('name'), amount, chargeDay: parseInt(fv('chargeDay')), category: 'other', accountId: fv('accountId') || null, destAccountId: fv('destAccountId') || null, note: '', monthlyAmounts: {} })
+        } else if (!isMonthly && isIncome) {
+          addFutureIncome({ name: fv('name'), amount, expectedDate: fv('date') || null, accountId: fv('accountId') || null })
+        } else {
+          addFutureIncome({ name: fv('name'), amount: -amount, expectedDate: fv('date'), isPayment: true, accountId: fv('accountId') || null })
+        }
         flash(); break
       }
 
@@ -204,14 +239,18 @@ export default function QuickAddModal({ onClose }) {
       case 'reminder': {
         const isMonthly = fv('reminderType') === 'monthly'
         const errs = []
-        if (!fv('text')) errs.push('text')
-        if (isMonthly && !fv('day'))  errs.push('day')
+        if (!isMonthly && !fv('text')) errs.push('text')
+        if (isMonthly && fv('invId') === '__other__' && !fv('text')) errs.push('text')
+        if (isMonthly && !fv('day'))   errs.push('day')
         if (!isMonthly && !fv('date')) errs.push('date')
         if (errs.length) { setErrors(errs); return }
+        const rawInvId = fv('invId')
+        const invId = rawInvId && rawInvId !== '__other__' ? rawInvId : null
+        const text  = fv('text') || ''
         if (isMonthly) {
-          addReminder({ text: fv('text'), type: 'monthly', day: parseInt(fv('day')), doneMonths: [] })
+          addReminder({ text, type: 'monthly', day: parseInt(fv('day')), doneMonths: [], ...(invId ? { invId } : {}) })
         } else {
-          addReminder({ text: fv('text'), type: 'once', date: fv('date') })
+          addReminder({ text, type: 'once', date: fv('date') })
         }
         flash(); break
       }
@@ -222,7 +261,25 @@ export default function QuickAddModal({ onClose }) {
         if (!fv('loanId')) errs.push('loanId')
         if (isNaN(val))    errs.push('value')
         if (errs.length) { setErrors(errs); return }
-        updateLoan(fv('loanId'), { [fv('field') || 'balanceOverride']: val })
+        const upd = { [fv('field') || 'balanceOverride']: val }
+        const cd = parseInt(fv('chargeDay'))
+        if (editTarget?.item && !isNaN(cd) && cd > 0) upd.chargeDay = cd
+        updateLoan(fv('loanId'), upd)
+        flash(); break
+      }
+
+      case 'update_investment': {
+        const val  = parseFloat(fv('newValue'))
+        const errs = []
+        if (!fv('invId'))  errs.push('invId')
+        if (isNaN(val))    errs.push('newValue')
+        if (errs.length) { setErrors(errs); return }
+        const inv = investments.find(i => i.id === fv('invId'))
+        if (inv?.currency === 'EUR' || inv?.currency === 'USD') {
+          updateInvestment(fv('invId'), { originalAmount: val })
+        } else {
+          updateInvestment(fv('invId'), { value: val })
+        }
         flash(); break
       }
 
@@ -252,43 +309,75 @@ export default function QuickAddModal({ onClose }) {
             {ilsAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </Sel>
         </F>
-      </>)
-
-      case 'future_income': return (<>
-        <F label="שם" name="name" errors={errors}>
-          <Inp err={e('name')} value={fv('name')} onChange={ev => sv('name', ev.target.value)} />
-        </F>
-        <F label="סכום (₪)" name="amount" errors={errors}>
-          <Inp err={e('amount')} type="number" value={fv('amount')} onChange={ev => sv('amount', ev.target.value)} />
-        </F>
-        <F label="תאריך צפוי (אופציונלי)" name="expectedDate" errors={errors}>
-          <Inp type="date" value={fv('expectedDate')} onChange={ev => sv('expectedDate', ev.target.value)} />
-        </F>
-        <F label="חשבון" name="accountId" errors={errors}>
-          <Sel value={fv('accountId')} onChange={ev => sv('accountId', ev.target.value)}>
-            <option value="">לא מקושר</option>
+        <F label="מאיזה חשבון יוצא ההחזר" name="repayAccountId" errors={errors}>
+          <Sel value={fv('repayAccountId')} onChange={ev => sv('repayAccountId', ev.target.value)}>
+            <option value="">לא מוגדר</option>
             {ilsAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </Sel>
         </F>
       </>)
 
-      case 'future_payment': return (<>
-        <F label="שם" name="name" errors={errors}>
-          <Inp err={e('name')} value={fv('name')} onChange={ev => sv('name', ev.target.value)} />
-        </F>
-        <F label="סכום (₪)" name="amount" errors={errors}>
-          <Inp err={e('amount')} type="number" value={fv('amount')} onChange={ev => sv('amount', ev.target.value)} />
-        </F>
-        <F label="תאריך" name="expectedDate" errors={errors}>
-          <Inp err={e('expectedDate')} type="date" value={fv('expectedDate')} onChange={ev => sv('expectedDate', ev.target.value)} />
-        </F>
-        <F label="חשבון" name="accountId" errors={errors}>
-          <Sel value={fv('accountId')} onChange={ev => sv('accountId', ev.target.value)}>
-            <option value="">לא מקושר</option>
-            {ilsAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </Sel>
-        </F>
-      </>)
+      case 'income_expense': {
+        const isMonthly = fv('freq') === 'monthly'
+        const isIncome  = (fv('kind') || 'expense') === 'income'
+        const isEditMode = !!editTarget?.item
+        const isUSD = editTarget?.item?.currency === 'USD'
+        const currSymbol = isUSD ? '$' : '₪'
+        return (<>
+          {!isEditMode && <div className="flex gap-2 mb-4">
+            {['once', 'monthly'].map(t => (
+              <button key={t} onClick={() => sv('freq', t)}
+                className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                  (fv('freq') || 'once') === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>
+                {t === 'once' ? 'חד פעמי' : 'חוזר כל חודש'}
+              </button>
+            ))}
+          </div>}
+          {!isEditMode && <div className="flex gap-2 mb-4">
+            {['expense', 'income'].map(k => (
+              <button key={k} onClick={() => sv('kind', k)}
+                className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                  (fv('kind') || 'expense') === k ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>
+                {k === 'income' ? '💚 הכנסה' : '🔴 הוצאה'}
+              </button>
+            ))}
+          </div>}
+          <F label="שם" name="name" errors={errors}>
+            <Inp err={e('name')} value={fv('name')} onChange={ev => sv('name', ev.target.value)} />
+          </F>
+          <F label={isMonthly ? `סכום חודשי (${currSymbol})` : `סכום (${currSymbol})`} name="amount" errors={errors}>
+            <Inp err={e('amount')} type="number" value={fv('amount')} onChange={ev => sv('amount', ev.target.value)} />
+          </F>
+          {isMonthly ? (
+            <F label="יום בחודש" name="chargeDay" errors={errors}>
+              <DayOfMonthPicker value={fv('chargeDay')} onChange={v => sv('chargeDay', v)} hasError={e('chargeDay')} />
+            </F>
+          ) : (
+            <F label={isIncome ? 'תאריך צפוי (אופציונלי)' : 'תאריך'} name="date" errors={errors}>
+              <MiniCalendar value={fv('date')} onChange={v => sv('date', v)} hasError={e('date')} />
+            </F>
+          )}
+          <F label={isIncome ? 'חשבון יעד' : 'חשבון מקור'} name="accountId" errors={errors}>
+            <Sel value={fv('accountId')} onChange={ev => sv('accountId', ev.target.value)}>
+              <option value="">לא מקושר</option>
+              {ilsAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </Sel>
+          </F>
+          {isMonthly && !isIncome && (
+            <F label="חשבון יעד — יזדכה בביצוע (אופציונלי)" name="destAccountId" errors={errors}>
+              <Sel value={fv('destAccountId')} onChange={ev => sv('destAccountId', ev.target.value)}>
+                <option value="">ללא</option>
+                <optgroup label="חשבונות בנק">
+                  {ilsAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </optgroup>
+                <optgroup label="השקעות">
+                  {investments.map(i => <option key={i.id} value={`inv:${i.id}`}>{i.name}</option>)}
+                </optgroup>
+              </Sel>
+            </F>
+          )}
+        </>)
+      }
 
       case 'update_debt': {
         const sel = debts.find(d => d.id === fv('debtId'))
@@ -449,16 +538,36 @@ export default function QuickAddModal({ onClose }) {
               </button>
             ))}
           </div>
-          <F label="תוכן התזכורת" name="text" errors={errors}>
-            <Inp err={e('text')} value={fv('text')} onChange={ev => sv('text', ev.target.value)} />
-          </F>
           {isMonthly ? (
-            <F label="יום בחודש (1–31)" name="day" errors={errors}>
-              <Inp err={e('day')} type="number" min="1" max="31" value={fv('day')} onChange={ev => sv('day', ev.target.value)} />
+            <F label="תזכורת" name="invId" errors={errors}>
+              <Sel value={fv('invId')} onChange={ev => sv('invId', ev.target.value)} style={!fv('invId') ? {color:'#9ca3af'} : {}}>
+                <option value="" disabled hidden>תזכורת</option>
+                {investments.map(i => <option key={i.id} value={i.id} style={{color:'#111827'}}>עדכון סכום {i.name}</option>)}
+                <option value="__other__" style={{color:'#111827'}}>אחר</option>
+              </Sel>
+            </F>
+          ) : (
+            <F label="תזכורת" name="text" errors={errors}>
+              <Inp err={e('text')} value={fv('text')} onChange={ev => sv('text', ev.target.value)} />
+            </F>
+          )}
+          {isMonthly && fv('invId') === '__other__' && (
+            <F label="תוכן התזכורת" name="text" errors={errors}>
+              <Inp err={e('text')} value={fv('text')} onChange={ev => sv('text', ev.target.value)} />
+            </F>
+          )}
+          {isMonthly ? (
+            <F label="יום בחודש" name="day" errors={errors}>
+              <DayOfMonthPicker value={fv('day')} onChange={v => sv('day', v)} hasError={e('day')} />
             </F>
           ) : (
             <F label="תאריך" name="date" errors={errors}>
-              <Inp err={e('date')} type="date" value={fv('date')} onChange={ev => sv('date', ev.target.value)} />
+              <MiniCalendar value={fv('date')} onChange={v => sv('date', v)} hasError={e('date')} />
+            </F>
+          )}
+          {isMonthly && (
+            <F label="הערה" name="text" errors={errors}>
+              <Inp err={e('text')} value={fv('text')} onChange={ev => sv('text', ev.target.value)} />
             </F>
           )}
         </>)
@@ -486,6 +595,32 @@ export default function QuickAddModal({ onClose }) {
           <F label="ערך חדש" name="value" errors={errors}>
             <Inp err={e('value')} type="number" value={fv('value')} onChange={ev => sv('value', ev.target.value)} />
           </F>
+          {editTarget?.item && (
+            <F label="יום חיוב בחודש" name="chargeDay" errors={errors}>
+              <DayOfMonthPicker value={fv('chargeDay')} onChange={v => sv('chargeDay', v)} />
+            </F>
+          )}
+        </>)
+      }
+
+      case 'update_investment': {
+        const selInv   = investments.find(i => i.id === fv('invId'))
+        const isFx     = selInv?.currency === 'EUR' || selInv?.currency === 'USD'
+        const symbol   = selInv?.currency === 'EUR' ? '€' : selInv?.currency === 'USD' ? '$' : '₪'
+        const curVal   = selInv ? (isFx ? selInv.originalAmount : selInv.value) : null
+        return (<>
+          <F label="השקעה" name="invId" errors={errors}>
+            <Sel err={e('invId')} value={fv('invId')} onChange={ev => { sv('invId', ev.target.value); sv('newValue', '') }}>
+              <option value="">בחר</option>
+              {investments.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+            </Sel>
+          </F>
+          {selInv && curVal != null && (
+            <p className="text-xs text-gray-400 -mt-2 mb-4">שווי נוכחי: {symbol}{Number(curVal).toLocaleString()}</p>
+          )}
+          <F label={`שווי עדכני (${symbol})`} name="newValue" errors={errors}>
+            <Inp err={e('newValue')} type="number" value={fv('newValue')} onChange={ev => sv('newValue', ev.target.value)} />
+          </F>
         </>)
       }
 
@@ -497,17 +632,17 @@ export default function QuickAddModal({ onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black bg-opacity-40"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
       onClick={ev => { if (ev.target === ev.currentTarget) onClose() }}
     >
-      <div className="bg-white w-full max-w-md rounded-3xl mb-12" style={{ maxHeight: '88vh', overflowY: 'auto', paddingBottom: 'env(safe-area-inset-bottom, 20px)' }}>
+      <div className="bg-white w-full max-w-md rounded-3xl mx-4 scroll-right" style={{ maxHeight: '88vh', overflowY: 'auto' }}>
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
-          {step !== 'pick'
-            ? <button onClick={() => pick('pick') || setStep('pick')} className="text-blue-500 text-sm font-medium">← חזרה</button>
+          {step !== 'pick' && !editTarget
+            ? <button onClick={() => { setStep('pick'); setForm({}); setErrors([]) }} className="text-blue-500 text-sm font-medium">חזרה</button>
             : <span className="w-12" />
           }
           <span className="font-bold text-gray-800 text-base">
-            {step === 'pick' ? '＋ הוסף נתון' : action?.label}
+            {step === 'pick' ? '＋ הוסף נתון' : editTarget ? '✏️ עריכה' : action?.label}
           </span>
           <button onClick={onClose} className="text-gray-400 text-2xl font-light leading-none w-8 text-center">×</button>
         </div>

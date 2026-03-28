@@ -21,9 +21,10 @@ const useStore = create(
       futureIncome: initialFutureIncome,
       debts:        initialDebts,
       primeRate:       5.5,
-      eurRate:         3.61,
-      usdRate:         3.12,
+      eurRate:         3.6283,
+      usdRate:         3.61,
       ratesLastFetched: null,
+      lastSaved:       0,
       discountTransferDone: [], // array of 'YYYY-MM' strings
       friendReminders: [],    // array of { loanId, monthKey, reminderSent, moneyReceived, _delta, _accountId }
       confirmDiscountTransfer: (monthKey) =>
@@ -170,38 +171,64 @@ const useStore = create(
       reminders: [],
       addReminder: (reminder) =>
         set(s => ({ reminders: [...(s.reminders || []), { ...reminder, id: 'rem' + Date.now(), done: false }] })),
+      updateReminder: (id, updates) =>
+        set(s => ({ reminders: (s.reminders || []).map(r => r.id === id ? { ...r, ...updates } : r) })),
       deleteReminder: (id) =>
         set(s => ({ reminders: (s.reminders || []).filter(r => r.id !== id) })),
       doneReminder: (id) =>
         set(s => ({ reminders: (s.reminders || []).map(r => r.id === id ? { ...r, done: true } : r) })),
+      undoneReminder: (id) =>
+        set(s => ({ reminders: (s.reminders || []).map(r => r.id === id ? { ...r, done: false } : r) })),
       // monthly reminder: dismiss for current month only
       doneReminderMonth: (id, monthKey) =>
         set(s => ({ reminders: (s.reminders || []).map(r => r.id === id ? { ...r, doneMonths: [...(r.doneMonths || []), monthKey] } : r) })),
+      undoneReminderMonth: (id, monthKey) =>
+        set(s => ({ reminders: (s.reminders || []).map(r => r.id === id ? { ...r, doneMonths: (r.doneMonths || []).filter(m => m !== monthKey) } : r) })),
 
       // ── Confirmed Events ──────────────────────
       confirmedEvents: [],
-      confirmEvent: (id, date, accountId, delta, isUSD, ro) =>
+      confirmEvent: (id, date, accountId, delta, isUSD, ro, destAccountId) =>
         set(s => {
-          const newConfirmed = [...s.confirmedEvents, { id, date, accountId, delta, isUSD, ...(ro ? { _ro: true } : {}) }]
+          const newConfirmed = [...s.confirmedEvents, { id, date, accountId, delta, isUSD, ...(ro ? { _ro: true } : {}), ...(destAccountId ? { destAccountId } : {}) }]
           if (!accountId || !delta) return { confirmedEvents: newConfirmed }
-          const accounts = s.accounts.map(a => {
+          let accounts = s.accounts.map(a => {
             if (a.id !== accountId) return a
             if (isUSD) return { ...a, usdBalance: (a.usdBalance || 0) + delta }
             return { ...a, balance: (a.balance || 0) + delta }
           })
-          return { confirmedEvents: newConfirmed, accounts }
+          let investments = s.investments
+          if (destAccountId) {
+            const credit = Math.abs(delta)
+            if (destAccountId.startsWith('inv:')) {
+              const invId = destAccountId.slice(4)
+              investments = s.investments.map(i => i.id !== invId ? i : { ...i, value: (i.value || 0) + credit })
+            } else {
+              accounts = accounts.map(a => a.id !== destAccountId ? a : { ...a, balance: (a.balance || 0) + credit })
+            }
+          }
+          return { confirmedEvents: newConfirmed, accounts, investments }
         }),
       unconfirmEvent: (id, date) =>
         set(s => {
           const ev = s.confirmedEvents.find(e => e.id === id && e.date === date)
           const newConfirmed = s.confirmedEvents.filter(e => !(e.id === id && e.date === date))
           if (!ev || !ev.accountId || !ev.delta) return { confirmedEvents: newConfirmed }
-          const accounts = s.accounts.map(a => {
+          let accounts = s.accounts.map(a => {
             if (a.id !== ev.accountId) return a
             if (ev.isUSD) return { ...a, usdBalance: (a.usdBalance || 0) - ev.delta }
             return { ...a, balance: (a.balance || 0) - ev.delta }
           })
-          return { confirmedEvents: newConfirmed, accounts }
+          let investments = s.investments
+          if (ev.destAccountId) {
+            const credit = Math.abs(ev.delta)
+            if (ev.destAccountId.startsWith('inv:')) {
+              const invId = ev.destAccountId.slice(4)
+              investments = s.investments.map(i => i.id !== invId ? i : { ...i, value: (i.value || 0) - credit })
+            } else {
+              accounts = accounts.map(a => a.id !== ev.destAccountId ? a : { ...a, balance: (a.balance || 0) - credit })
+            }
+          }
+          return { confirmedEvents: newConfirmed, accounts, investments }
         }),
 
       // ── Settings ──────────────────────────────
@@ -223,7 +250,7 @@ const useStore = create(
     }),
     {
       name: 'financial-app-v14',
-      version: 40,
+      version: 43,
       migrate: (state) => {
         // ── v19: accountId fields + e1→e1a/e1b split ──────────────────────
         const loanUpdates = {
@@ -242,7 +269,7 @@ const useStore = create(
         const expenseUpdates = {
           'e2':    { paidViaCredit: true },
           'e4':    { accountId: 'ba5' }, 'e5':  { accountId: 'ba2' },
-          'e9':    { accountId: 'ba2' }, 'e7':  { accountId: 'ba12' },
+          'e9':    { accountId: 'ba4', note: 'יעל בינלאומי' }, 'e7':  { accountId: 'ba12' },
           'e8':    { accountId: 'ba12' }, 'e10': { accountId: 'ba5' },
           'e_cc1': { chargeDay: 10 },
           'e_cc2': { chargeDay: 10 },
@@ -278,20 +305,22 @@ const useStore = create(
             return i
           })
 
-        // הוסף גיא ושליו להשקעות אם לא קיימים
-        const hasGuy   = cleanedInvestments.some(i => i.id === 'inv10')
-        const hasShlio = cleanedInvestments.some(i => i.id === 'inv11')
+        // הוסף גיא, שליו וקופת גמל אביגיל להשקעות אם לא קיימים
+        const hasGuy    = cleanedInvestments.some(i => i.id === 'inv10')
+        const hasShlio  = cleanedInvestments.some(i => i.id === 'inv11')
+        const hasAvigail = cleanedInvestments.some(i => i.id === 'inv12')
         const investmentsWithFx = [
           ...cleanedInvestments,
-          ...(!hasGuy   ? [{ id: 'inv10', name: 'גיא משה', value: 0, type: 'cash', owner: 'משותף', currency: 'EUR', originalAmount: 123600 }] : []),
-          ...(!hasShlio ? [{ id: 'inv11', name: 'שליו',    value: 0, type: 'cash', owner: 'משותף', currency: 'USD', originalAmount: 42000  }] : []),
+          ...(!hasGuy     ? [{ id: 'inv10', name: 'גיא משה',        value: 0, type: 'cash',    owner: 'משותף', currency: 'EUR', originalAmount: 123600 }] : []),
+          ...(!hasShlio   ? [{ id: 'inv11', name: 'שליו',            value: 0, type: 'cash',    owner: 'משותף', currency: 'USD', originalAmount: 42000  }] : []),
+          ...(!hasAvigail ? [{ id: 'inv12', name: 'קופת גמל אביגיל', value: 0, type: 'savings', owner: 'יעל' }] : []),
         ]
 
         return {
           ...state,
-          eurRate:         state.eurRate || 3.61,
-          usdRate:         3.12,
-          ratesLastFetched: null,
+          eurRate:         3.6283,
+          usdRate:         (state.usdRate && state.usdRate >= 3.0) ? state.usdRate : 3.61, // USD rate נשמר כפי שנשלף מהבנק
+          ratesLastFetched: Date.now(),
           debts: (() => {
             const ids = debtsWithNursery.map(d => d.id)
             if (!ids.includes('d6')) return [...debtsWithNursery, { id: 'd6', name: 'אמא — הלוואה 6000 + משכנתא מרץ', amount: 14325, type: 'we_owe', expectedDate: null, notes: '6,000 הלוואה + 7,500 משכנתא מרץ' }]
@@ -418,8 +447,18 @@ export function patchCloudState(state) {
     s.rentalIncome = [...rental, { id: 'r7', name: 'ליאת — החזר חוב', amount: 1000, chargeDay: 10, debtId: 'd2', note: 'מקזז מחוב ליאת' }]
   }
 
+  // inv12: קופת גמל אביגיל (v41)
+  const invs = s.investments || []
+  if (!invs.some(i => i.id === 'inv12')) {
+    s.investments = [...invs, { id: 'inv12', name: 'קופת גמל אביגיל', value: 0, type: 'savings', owner: 'יעל' }]
+  }
+
   if (!s.reminders) s.reminders = []
   if (!s.dismissedEvents) s.dismissedEvents = []
+
+  // v43: תיקון שער יורו שגוי שנשמר בענן — מאכץ שיעור נכון מבנק ישראל
+  s.eurRate = 3.6283
+  s.ratesLastFetched = Date.now()
 
   return s
 }

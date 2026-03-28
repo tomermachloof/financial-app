@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import useStore from '../store/useStore'
 
 const url = import.meta.env.VITE_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -19,9 +20,11 @@ export async function loadState() {
 }
 
 export async function saveState(state) {
-  // Save only data fields, not functions
+  const now = Date.now()
+  // חותמים את ה-timestamp ב-store לפני השליחה — כך localStorage תמיד עדכני
+  useStore.setState({ lastSaved: now })
   const serializable = Object.fromEntries(
-    Object.entries(state).filter(([, v]) => typeof v !== 'function')
+    Object.entries({ ...state, lastSaved: now }).filter(([, v]) => typeof v !== 'function')
   )
   const { error } = await supabase
     .from('app_state')

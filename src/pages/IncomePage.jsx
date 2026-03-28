@@ -358,7 +358,7 @@ export default function IncomePage() {
             <p className="text-2xl font-bold text-green-600 text-center">{formatILS(receiveModal.item.amount)}</p>
             <div>
               <p className="text-xs text-gray-500 mb-2">לאיזה חשבון לזכות?</p>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
+              <div className="space-y-2 max-h-48 overflow-y-auto scroll-right">
                 {ilsAccounts.map(a => (
                   <button
                     key={a.id}

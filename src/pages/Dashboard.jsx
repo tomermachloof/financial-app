@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react'
 import useStore from '../store/useStore'
+import MiniCalendar from '../components/MiniCalendar'
+import DayOfMonthPicker from '../components/DayOfMonthPicker'
+import QuickAddModal from '../components/QuickAddModal'
+import IncomeEditModal from '../components/IncomeEditModal'
 import {
   calcTotalLiquidity, calcNetWorth, calcSafeToSpend,
   calcMonthlyOut, calcMonthlyIn, getUpcomingEvents, calcRemainingBalance,
@@ -20,7 +24,7 @@ const RANGE_OPTIONS = [
 ]
 
 export default function Dashboard() {
-  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, reminders, doneReminder, doneReminderMonth, deleteReminder, deleteFutureIncome, dismissedEvents, dismissEvent } = useStore()
+  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, reminders, doneReminder, doneReminderMonth, undoneReminder, undoneReminderMonth, deleteReminder, updateReminder, updateInvestment, deleteFutureIncome, deleteExpense, deleteRentalIncome, dismissedEvents, dismissEvent } = useStore()
 
   const [rangeDays, setRangeDays] = useState(14)
   const [filterType, setFilterType] = useState('all') // 'all' | 'income' | 'expense'
@@ -32,6 +36,15 @@ export default function Dashboard() {
   const [ccDraft, setCCDraft] = useState({}) // local edits before saving
   const [ccSaved, setCCSaved] = useState(false)
   const [ccEditing, setCCEditing] = useState(false)
+  const [showAllReminders, setShowAllReminders] = useState(false)
+  const [showDataModal, setShowDataModal] = useState(false)
+  const [dataTab, setDataTab] = useState('reminders')
+  const [incomeEditItem, setIncomeEditItem] = useState(null)
+  const [editingRemId, setEditingRemId] = useState(null)
+  const [editTarget, setEditTarget] = useState(null)
+  const [editDraft, setEditDraft] = useState({})
+  const [invUpdateRem, setInvUpdateRem] = useState(null) // { remId, invId, newValue }
+
 
   const liquidity    = calcTotalLiquidity(accounts, usdRate)
   const ilsLiquidity = accounts.filter(a => a.currency !== 'USD').reduce((s, a) => s + (a.balance || 0), 0)
@@ -57,6 +70,49 @@ export default function Dashboard() {
 
   const isConfirmed  = (id, dateStr) => confirmedEvents.some(e => e.id === id && e.date === dateStr)
   const accountMap   = Object.fromEntries(accounts.map(a => [a.id, a.name]))
+
+  const handleEditEvent = (event) => {
+    const baseId = event.id.replace(/_ro$/, '').replace(/_m\d+$/, '')
+    let item, type, action, form
+    if (event.type === 'loan') {
+      item = loans.find(l => l.id === baseId); type = 'loan'; action = 'update_loan'
+      if (item) form = { loanId: item.id, field: 'monthlyPayment', value: String(item.monthlyPayment || ''), chargeDay: String(item.chargeDay || '') }
+    } else if (event.type === 'expense') {
+      item = expenses.find(e => e.id === baseId); type = 'expense'; action = 'income_expense'
+      if (item) form = { freq: 'monthly', kind: 'expense', name: item.name, amount: String(item.currency === 'USD' ? (item.usdAmount || '') : (item.amount || '')), chargeDay: item.chargeDay, accountId: item.accountId || '', destAccountId: item.destAccountId || '' }
+    } else if (event.type === 'rental') {
+      item = rentalIncome.find(r => r.id === baseId); type = 'rental'; action = 'income_expense'
+      if (item) form = { freq: 'monthly', kind: 'income', name: item.name, amount: String(item.usdAmount || item.amount || ''), chargeDay: item.chargeDay, accountId: item.accountId || '' }
+    } else if (event.type === 'future') {
+      item = futureIncome.find(f => f.id === baseId); type = 'future'
+      if (item) {
+        const isFriendReceive = item.name?.startsWith('הלוואה מ')
+        const isFriendRepay   = item.name?.startsWith('החזר ל')
+        if (isFriendReceive || isFriendRepay) {
+          action = 'friend_loan'
+          const lenderName   = isFriendReceive ? item.name.slice('הלוואה מ'.length) : item.name.slice('החזר ל'.length)
+          const receiveEntry = isFriendReceive ? item : futureIncome.find(f => f.name === `הלוואה מ${lenderName}`)
+          const repayEntry   = isFriendRepay   ? item : futureIncome.find(f => f.name === `החזר ל${lenderName}`)
+          const debtEntry    = debts.find(d => d.name === lenderName && d.type === 'we_owe')
+          form = {
+            lenderName,
+            amount:         String(receiveEntry?.amount || Math.abs(item.amount || 0)),
+            receivedDate:   receiveEntry?.expectedDate || '',
+            repayDate:      repayEntry?.expectedDate   || '',
+            accountId:      receiveEntry?.accountId || item.accountId || '',
+            repayAccountId: repayEntry?.accountId  || '',
+            _receiveId:     receiveEntry?.id,
+            _repayId:       repayEntry?.id,
+            _debtId:        debtEntry?.id,
+          }
+        } else {
+          action = 'income_expense'
+          form = { freq: 'once', kind: item.isPayment ? 'expense' : 'income', name: item.name, amount: String(Math.abs(item.amount || 0)), date: item.expectedDate || '', accountId: item.accountId || '' }
+        }
+      }
+    }
+    if (item) setEditTarget({ type, item, action, form })
+  }
 
   const CC_IDS        = ['e_cc1', 'e_cc2', 'e_cc3']
   const ccExpenses    = expenses.filter(e => CC_IDS.includes(e.id))
@@ -212,7 +268,7 @@ export default function Dashboard() {
   // Rolled-over: past unconfirmed INCOME events only (amount > 0 = money coming in)
   const rolledOver = allEvents
     .filter(e => e.dateStr < todayStr && !isConfirmed(e.id, e.dateStr) && e.amount > 0)
-    .map(e => ({ ...e, date: today, dateStr: todayStr, rolledOver: true, originalDateStr: e.dateStr, id: e.id + '_ro' }))
+    .map(e => ({ ...e, date: today, dateStr: todayStr, rolledOver: true, originalDateStr: e.dateStr, originalDate: e.date, id: e.id + '_ro' }))
 
   const isDismissed = (id, date) => (dismissedEvents || []).some(d => d.id === id && d.date === date)
 
@@ -564,7 +620,7 @@ export default function Dashboard() {
         })}
 
         {/* Today's events */}
-        {(visibleToday.length > 0 || visibleConfirmed.length > 0 || friendPendingPayments.length > 0) && (() => {
+        {(() => {
           const ccAllRolledOver = !showCCWidget && CC_IDS.every(id => visibleToday.some(e => e.id === id + '_ro'))
           const ccRoPaid        = ccExpenses.length > 0 && ccExpenses.every(e => isConfirmed(e.id, yesterdayStr))
           const ccTodayEvents   = CC_IDS.map(id => visibleToday.find(e => e.id === id)).filter(Boolean)
@@ -573,7 +629,7 @@ export default function Dashboard() {
             confirmEvent(e.id, todayStr, e.accountId, calcDelta(e), e.currency === 'USD', false)
           })
           return (
-          <Section title="היום" icon="⚡" subtitle={today.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })}>
+          <Section title="היום" icon="⚡" subtitle={today.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })} toolbar={<button onClick={() => setShowDataModal(true)} className="text-xs text-blue-300 font-normal active:opacity-60">נתונים</button>}>
             {/* CC confirm-all banner — charge day */}
             {ccAllToday && (
               <div className="flex items-center justify-between px-4 py-3 bg-indigo-50 border-b border-indigo-100">
@@ -602,20 +658,37 @@ export default function Dashboard() {
               }
               return !r.done && r.date === todayStr
             }).map(r => (
-              <div key={r.id} className="flex items-center justify-between px-4 py-3 bg-yellow-50">
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full flex-shrink-0 bg-yellow-400" />
-                  <div>
-                    <p className="text-sm font-medium text-gray-800">🔔 {r.text}</p>
-                    {r.type === 'monthly' && <p className="text-xs text-gray-400">חוזרת בכל {r.day} לחודש</p>}
+              <div key={r.id} className="bg-yellow-50">
+                <div className="flex items-center justify-between px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full flex-shrink-0 bg-yellow-400" />
+                    <div>
+                      {r.invId ? (() => {
+                        const inv = investments.find(i => i.id === r.invId)
+                        return (<>
+                          <p className="text-sm font-medium text-gray-800">🔔 {inv ? `עדכון סכום ${inv.name}` : r.text}</p>
+                          {r.type === 'monthly' && <p className="text-xs text-gray-400">חוזרת בכל {r.day} לחודש</p>}
+                          {r.text && <p className="text-xs text-gray-400">{r.text}</p>}
+                        </>)
+                      })() : (<>
+                        <p className="text-sm font-medium text-gray-800">🔔 {r.text}</p>
+                        {r.type === 'monthly' && <p className="text-xs text-gray-400">חוזרת בכל {r.day} לחודש</p>}
+                      </>)}
+                    </div>
                   </div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => r.type === 'monthly' ? doneReminderMonth(r.id, thisMonthKey) : doneReminder(r.id)}
-                    className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded-lg font-medium"
-                  >✓</button>
-                  <button onClick={() => deleteReminder(r.id)} className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium">מחק</button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        if (r.invId) {
+                          setInvUpdateRem({ remId: r.id, invId: r.invId, newValue: '' })
+                        } else {
+                          r.type === 'monthly' ? doneReminderMonth(r.id, thisMonthKey) : doneReminder(r.id)
+                        }
+                      }}
+                      className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded-lg font-medium"
+                    >✓</button>
+                    <button onClick={() => deleteReminder(r.id)} className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium">מחק</button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -624,12 +697,13 @@ export default function Dashboard() {
                 key={e.id}
                 event={e}
                 highlight
+                onEdit={() => handleEditEvent(e)}
                 onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')}
                 onConfirm={() => {
                   const id      = e.rolledOver ? e.id.replace('_ro','') : e.id
                   const dateStr = e.rolledOver ? e.originalDateStr : todayStr
                   const delta   = calcDelta(e)
-                  confirmEvent(id, dateStr, e.accountId || null, delta, e.currency === 'USD', e.rolledOver)
+                  confirmEvent(id, dateStr, e.accountId || null, delta, e.currency === 'USD', e.rolledOver, e.destAccountId || null)
                   if (e.debtId) {
                     const debt = debts.find(d => d.id === e.debtId)
                     if (debt) updateDebt(e.debtId, { amount: Math.max(0, (debt.amount || 0) - Math.abs(e.amount)) })
@@ -668,6 +742,7 @@ export default function Dashboard() {
                 key={e.id + '_done'}
                 event={e}
                 confirmed
+                onEdit={() => handleEditEvent(e)}
                 onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')}
                 onUnconfirm={() => unconfirmEvent(e.id, e._confirmedRo ? e.originalDateStr : todayStr)}
                 onDelete={() => {
@@ -731,7 +806,7 @@ export default function Dashboard() {
               </div>
             }
           >
-            {visibleSoon.map(e => <EventRow key={e.id} event={e} onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')} />)}
+            {visibleSoon.map(e => <EventRow key={e.id} event={e} onEdit={() => handleEditEvent(e)} onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')} />)}
           </Section>
         )}
 
@@ -765,7 +840,7 @@ export default function Dashboard() {
                 </h3>
                 <button onClick={() => setShowAccountsModal(null)} className="text-gray-400 text-xl leading-none">×</button>
               </div>
-              <div className="overflow-y-auto divide-y divide-gray-50">
+              <div className="overflow-y-auto divide-y divide-gray-50 scroll-right">
                 {filtered.map(a => {
                   const bal = isUSDModal ? (a.usdBalance || 0) : (a.balance || 0)
                   return (
@@ -811,7 +886,8 @@ export default function Dashboard() {
         const ilsAccTotal  = ilsAccounts.reduce((s, a) => s + (a.balance || 0), 0)
         const usdAccTotal  = usdAccounts.reduce((s, a) => s + (a.usdBalance || 0) * usdRate, 0)
         const invTotal     = investments.reduce((s, i) => s + invILS(i), 0)
-        const owedToUs     = debts.filter(d => d.type === 'owed_to_us').reduce((s, d) => s + (d.amount || 0), 0)
+        const debtILS2     = d => d.currency === 'EUR' ? (d.originalAmount||0)*eurRate : d.currency === 'USD' ? (d.originalAmount||0)*usdRate : (d.amount||0)
+        const owedToUs     = debts.filter(d => d.type === 'owed_to_us').reduce((s, d) => s + debtILS2(d), 0)
         const totalAssets  = ilsAccTotal + usdAccTotal + invTotal + owedToUs
 
         const friendLoans    = loans.filter(l => l.paidByFriend)
@@ -821,7 +897,7 @@ export default function Dashboard() {
         const getLoanBal     = l => { const { balance } = calcRemainingBalance(l); return balance ?? l.balanceOverride ?? l.totalAmount ?? 0 }
         const mortgagesTotal = mortgageLoans.reduce((s, l) => s + getLoanBal(l), 0)
         const loansTotal     = regularLoans.reduce((s, l) => s + getLoanBal(l), 0)
-        const weOwe          = debts.filter(d => d.type === 'we_owe').reduce((s, d) => s + (d.amount || 0), 0)
+        const weOwe          = debts.filter(d => d.type === 'we_owe').reduce((s, d) => s + debtILS2(d), 0)
         const totalLiab      = loansTotal + weOwe
         const totalLiabNoMort = totalLiab - mortgagesTotal
 
@@ -843,15 +919,20 @@ export default function Dashboard() {
                 <h3 className="font-bold text-gray-800 text-sm">📊 חישוב הון נטו</h3>
                 <button onClick={() => setShowNetWorthModal(false)} className="text-gray-400 text-xl leading-none">×</button>
               </div>
-              <div className="overflow-y-auto px-4 py-2">
+              <div className="overflow-y-auto px-4 py-2 scroll-right">
 
                 {/* Assets */}
                 <p className="text-xs font-bold text-green-600 mt-2 mb-1">נכסים</p>
                 <Row label="חשבונות ₪" value={ilsAccTotal} indent />
                 <Row label="חשבונות $" value={usdAccTotal} sub={`$${new Intl.NumberFormat('en',{maximumFractionDigits:0}).format(usdLiquidity)} @ ${usdRate}`} indent />
-                {investments.map(i => (
-                  <Row key={i.id} label={i.name} value={invILS(i)} indent />
-                ))}
+                {investments.map(i => {
+                  const sub = i.currency === 'EUR'
+                    ? `€${(i.originalAmount||0).toLocaleString()} @ ₪${eurRate}`
+                    : i.currency === 'USD'
+                      ? `$${(i.originalAmount||0).toLocaleString()} @ ₪${usdRate}`
+                      : null
+                  return <Row key={i.id} label={i.name} value={invILS(i)} sub={sub} indent />
+                })}
                 {debts.filter(d => d.type === 'owed_to_us').map(d => (
                   <Row key={d.id} label={`חייבים לנו — ${d.name}`} value={d.amount || 0} indent />
                 ))}
@@ -893,6 +974,306 @@ export default function Dashboard() {
           </div>
         )
       })()}
+
+      {/* Investment update popup */}
+      {invUpdateRem && (() => {
+        const inv = investments.find(i => i.id === invUpdateRem.invId)
+        const isFx = inv?.currency === 'EUR' || inv?.currency === 'USD'
+        const symbol = inv?.currency === 'EUR' ? '€' : inv?.currency === 'USD' ? '$' : '₪'
+        const curVal = inv ? (isFx ? inv.originalAmount : inv.value) : null
+        const rem = (reminders||[]).find(r => r.id === invUpdateRem.remId)
+        const confirmUpdate = () => {
+          const val = parseFloat(invUpdateRem.newValue)
+          if (!isNaN(val) && val > 0) {
+            if (isFx) updateInvestment(invUpdateRem.invId, { originalAmount: val })
+            else      updateInvestment(invUpdateRem.invId, { value: val })
+          }
+          if (rem?.type === 'monthly') doneReminderMonth(invUpdateRem.remId, thisMonthKey)
+          else doneReminder(invUpdateRem.remId)
+          setInvUpdateRem(null)
+        }
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
+            onClick={ev => { if (ev.target === ev.currentTarget) setInvUpdateRem(null) }}>
+            <div className="bg-white w-full max-w-sm rounded-3xl mx-4 p-6">
+              <p className="font-bold text-gray-800 text-base mb-1">📈 {inv?.name}</p>
+              {curVal != null && <p className="text-xs text-gray-400 mb-4">שווי נוכחי: {symbol}{Number(curVal).toLocaleString()}</p>}
+              <label className="text-xs text-gray-500 block mb-1">שווי עדכני ({symbol})</label>
+              <input
+                type="number"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400 mb-4"
+                value={invUpdateRem.newValue}
+                onChange={ev => setInvUpdateRem(r => ({ ...r, newValue: ev.target.value }))}
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button onClick={() => setInvUpdateRem(null)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-500">ביטול</button>
+                <button onClick={confirmUpdate} className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold">עדכן ✓</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* All Reminders Modal */}
+      {showAllReminders && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
+          onClick={ev => { if (ev.target === ev.currentTarget) setShowAllReminders(false) }}
+        >
+          <div className="bg-white w-full max-w-md rounded-3xl mx-4 scroll-right" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
+              <span className="font-bold text-gray-800 text-base">📋 כל התזכורות</span>
+              <button onClick={() => setShowAllReminders(false)} className="text-gray-400 text-2xl font-light leading-none w-8 text-center">×</button>
+            </div>
+            <div className="divide-y divide-gray-50 pb-4">
+              {(reminders || []).length === 0 && (
+                <p className="text-center text-sm text-gray-400 py-8">אין תזכורות</p>
+              )}
+              {(reminders || []).map(r => {
+                const isMonthly = r.type === 'monthly'
+                const isDoneToday = isMonthly
+                  ? (r.doneMonths || []).includes(thisMonthKey)
+                  : r.done
+                const isEditing = editingRemId === r.id
+                if (isEditing) {
+                  return (
+                    <div key={r.id} className="px-4 py-3 bg-yellow-50 space-y-2">
+                      <input
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                        value={editDraft.text ?? r.text}
+                        onChange={ev => setEditDraft(d => ({ ...d, text: ev.target.value }))}
+                      />
+                      {isMonthly ? (
+                        <DayOfMonthPicker
+                          value={String(editDraft.day ?? r.day ?? '')}
+                          onChange={v => setEditDraft(d => ({ ...d, day: v }))}
+                        />
+                      ) : (
+                        <MiniCalendar
+                          value={editDraft.date ?? r.date ?? ''}
+                          onChange={v => setEditDraft(d => ({ ...d, date: v }))}
+                        />
+                      )}
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => { setEditingRemId(null); setEditDraft({}) }}
+                          className="text-xs text-gray-400 px-3 py-1.5 rounded-lg border border-gray-200"
+                        >ביטול</button>
+                        <button
+                          onClick={() => {
+                            const updates = { text: editDraft.text ?? r.text }
+                            if (isMonthly) updates.day = parseInt(editDraft.day ?? r.day)
+                            else updates.date = editDraft.date ?? r.date
+                            updateReminder(r.id, updates)
+                            setEditingRemId(null); setEditDraft({})
+                          }}
+                          className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-medium"
+                        >שמור</button>
+                      </div>
+                    </div>
+                  )
+                }
+                const toggleDone = () => {
+                  if (isMonthly) {
+                    const next = isDoneToday
+                      ? (r.doneMonths || []).filter(m => m !== thisMonthKey)
+                      : [...(r.doneMonths || []), thisMonthKey]
+                    updateReminder(r.id, { doneMonths: next })
+                  } else {
+                    updateReminder(r.id, { done: !r.done })
+                  }
+                }
+                return (
+                  <div key={r.id} className={`flex items-center justify-between px-4 py-3 transition-opacity ${isDoneToday ? 'opacity-40' : ''}`}>
+                    <button onClick={toggleDone} className="flex items-center gap-3 text-right flex-1">
+                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isDoneToday ? 'bg-gray-300' : 'bg-yellow-400'}`} />
+                      <div>
+                        {r.invId ? (() => {
+                          const inv = investments.find(i => i.id === r.invId)
+                          return (<>
+                            <p className={`text-sm text-gray-800 ${isDoneToday ? '' : 'font-medium'}`}>🔔 {inv ? `עדכון סכום ${inv.name}` : r.text}</p>
+                            {isMonthly && <p className="text-xs text-gray-400">חוזרת בכל {r.day} לחודש</p>}
+                            {r.text && <p className="text-xs text-gray-400">{r.text}</p>}
+                          </>)
+                        })() : (<>
+                          <p className={`text-sm text-gray-800 ${isDoneToday ? '' : 'font-medium'}`}>🔔 {r.text}</p>
+                          <p className="text-xs text-gray-400">
+                            {isMonthly
+                              ? `חוזרת בכל ${r.day} לחודש`
+                              : r.date
+                                ? new Date(r.date + 'T00:00:00').toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' })
+                                : ''}
+                          </p>
+                        </>)}
+                      </div>
+                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={e => { e.stopPropagation(); setEditingRemId(r.id); setEditDraft({}) }}
+                        className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-lg font-medium"
+                      >ערוך</button>
+                      <button
+                        onClick={e => { e.stopPropagation(); deleteReminder(r.id) }}
+                        className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium"
+                      >מחק</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+      {showDataModal && (() => {
+        const pendingFuture  = futureIncome.filter(f => f.status === 'pending')
+        const isOutgoing     = f => f.isPayment || (f.amount || 0) < 0 || f.name?.startsWith('החזר ל')
+        const futureOutgoing = pendingFuture.filter(isOutgoing)
+        const futureIncoming = pendingFuture.filter(f => !isOutgoing(f))
+        const tabs = [
+          { key: 'reminders',      label: '🔔 תזכורות',            count: reminders.length },
+          { key: 'futureIncoming', label: '💚 הכנסות חד פעמיות',  count: futureIncoming.length },
+          { key: 'futureOutgoing', label: '🔴 חיובים חד פעמיים',  count: futureOutgoing.length },
+          { key: 'income',         label: '💚 הכנסות קבועות',     count: rentalIncome.length },
+          { key: 'expenses',       label: '🔴 חיובים קבועים',     count: expenses.length },
+        ]
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
+            onClick={ev => { if (ev.target === ev.currentTarget) setShowDataModal(false) }}>
+            <div className="bg-white w-full max-w-md rounded-3xl mx-4 scroll-right" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
+              <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
+                <span className="font-bold text-gray-800 text-base">📋 נתונים</span>
+                <button onClick={() => setShowDataModal(false)} className="text-gray-400 text-2xl font-light leading-none w-8 text-center">×</button>
+              </div>
+              <div className="flex border-b border-gray-100 overflow-x-auto">
+                {tabs.map(tab => (
+                  <button key={tab.key} onClick={() => setDataTab(tab.key)}
+                    className={`flex-shrink-0 text-xs py-2.5 px-3 font-medium border-b-2 transition-colors whitespace-nowrap ${
+                      dataTab === tab.key ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-400'
+                    }`}>
+                    {tab.label}{tab.count > 0 ? ` (${tab.count})` : ''}
+                  </button>
+                ))}
+              </div>
+              <div className="divide-y divide-gray-50 pb-4">
+                {dataTab === 'expenses' && (
+                  expenses.length === 0
+                    ? <p className="text-center text-sm text-gray-400 py-8">אין חיובים קבועים</p>
+                    : expenses.map(item => (
+                      <div key={item.id} className="flex items-center gap-3 px-4 py-3">
+                        <div className="w-2 h-2 rounded-full flex-shrink-0 bg-red-400" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800">{item.name}</p>
+                          <p className="text-xs text-gray-400">{item.currency === 'USD' ? `$${(item.usdAmount||0).toLocaleString()}` : `₪${(item.amount||0).toLocaleString()}`} • יום {item.chargeDay}{item.accountId ? ` • ${accounts.find(a=>a.id===item.accountId)?.name||''}` : ''}</p>
+                        </div>
+                        <div className="flex gap-1">
+                          <button onClick={() => { setEditTarget({ type: 'expense', item, action: 'income_expense', form: { freq: 'monthly', kind: 'expense', name: item.name, amount: String(item.currency === 'USD' ? (item.usdAmount||'') : (item.amount||'')), chargeDay: item.chargeDay, accountId: item.accountId||'', destAccountId: item.destAccountId||'' } }) }}
+                            className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-lg font-medium">ערוך</button>
+                          <button onClick={() => deleteExpense(item.id)}
+                            className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium">מחק</button>
+                        </div>
+                      </div>
+                    ))
+                )}
+                {dataTab === 'income' && (
+                  rentalIncome.length === 0
+                    ? <p className="text-center text-sm text-gray-400 py-8">אין הכנסות קבועות</p>
+                    : rentalIncome.map(item => (
+                      <div key={item.id} className="flex items-center gap-3 px-4 py-3">
+                        <div className="w-2 h-2 rounded-full flex-shrink-0 bg-green-500" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800">{item.name}</p>
+                          <p className="text-xs text-gray-400">{item.currency === 'USD' ? `$${item.usdAmount}` : `₪${(item.amount||0).toLocaleString()}`} • יום {item.chargeDay}{item.accountId ? ` • ${accounts.find(a=>a.id===item.accountId)?.name||''}` : ''}</p>
+                        </div>
+                        <div className="flex gap-1">
+                          <button onClick={() => { setEditTarget({ type: 'rental', item, action: 'income_expense', form: { freq: 'monthly', kind: 'income', name: item.name, amount: String(item.usdAmount||item.amount||''), chargeDay: item.chargeDay, accountId: item.accountId||'' } }) }}
+                            className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-lg font-medium">ערוך</button>
+                          <button onClick={() => deleteRentalIncome(item.id)}
+                            className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium">מחק</button>
+                        </div>
+                      </div>
+                    ))
+                )}
+                {(dataTab === 'futureIncoming' || dataTab === 'futureOutgoing') && (() => {
+                  const items = dataTab === 'futureIncoming' ? futureIncoming : futureOutgoing
+                  const emptyMsg = dataTab === 'futureIncoming' ? 'אין הכנסות חד פעמיות' : 'אין חיובים חד פעמיים'
+                  if (items.length === 0) return <p className="text-center text-sm text-gray-400 py-8">{emptyMsg}</p>
+                  return items.map(item => {
+                    const isFriendReceive = item.name?.startsWith('הלוואה מ')
+                    const isFriendRepay   = item.name?.startsWith('החזר ל')
+                    let editT
+                    if (isFriendReceive || isFriendRepay) {
+                      const lenderName   = isFriendReceive ? item.name.slice('הלוואה מ'.length) : item.name.slice('החזר ל'.length)
+                      const receiveEntry = isFriendReceive ? item : futureIncome.find(f => f.name === `הלוואה מ${lenderName}`)
+                      const repayEntry   = isFriendRepay   ? item : futureIncome.find(f => f.name === `החזר ל${lenderName}`)
+                      const debtEntry    = debts.find(d => d.name === lenderName && d.type === 'we_owe')
+                      editT = { type: 'future', item, action: 'friend_loan', form: { lenderName, amount: String(receiveEntry?.amount || Math.abs(item.amount||0)), receivedDate: receiveEntry?.expectedDate||'', repayDate: repayEntry?.expectedDate||'', accountId: receiveEntry?.accountId||item.accountId||'', repayAccountId: repayEntry?.accountId||'', _receiveId: receiveEntry?.id, _repayId: repayEntry?.id, _debtId: debtEntry?.id } }
+                    } else {
+                      editT = { type: 'future', item, action: 'income_expense', form: { freq: 'once', kind: item.isPayment ? 'expense' : 'income', name: item.name, amount: String(Math.abs(item.amount||0)), date: item.expectedDate||'', accountId: item.accountId||'' } }
+                    }
+                    const dotColor = dataTab === 'futureIncoming' ? 'bg-green-500' : 'bg-red-400'
+                    return (
+                      <div key={item.id} className="flex items-center gap-3 px-4 py-3">
+                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800">{item.name}</p>
+                          <p className="text-xs text-gray-400">₪{Math.abs(item.amount||0).toLocaleString()} • {item.expectedDate || 'ללא תאריך'}{item.accountId ? ` • ${accounts.find(a=>a.id===item.accountId)?.name||''}` : ''}</p>
+                        </div>
+                        <div className="flex gap-1">
+                          <button onClick={() => { item.sessions?.length > 0 ? setIncomeEditItem(item) : setEditTarget(editT) }}
+                            className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-lg font-medium">ערוך</button>
+                          <button onClick={() => deleteFutureIncome(item.id)}
+                            className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium">מחק</button>
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
+                {dataTab === 'reminders' && (
+                  reminders.length === 0
+                    ? <p className="text-center text-sm text-gray-400 py-8">אין תזכורות</p>
+                    : reminders.map(r => {
+                      const isMonthly   = r.type === 'monthly'
+                      const isDoneToday = isMonthly ? (r.doneMonths||[]).includes(thisMonthKey) : r.done
+                      const isEditing   = editingRemId === r.id
+                      if (isEditing) return (
+                        <div key={r.id} className="px-4 py-3 bg-yellow-50 space-y-2">
+                          <input className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                            value={editDraft.text ?? r.text} onChange={ev => setEditDraft(d => ({ ...d, text: ev.target.value }))} />
+                          {isMonthly
+                            ? <DayOfMonthPicker value={String(editDraft.day ?? r.day ?? '')} onChange={v => setEditDraft(d => ({ ...d, day: v }))} />
+                            : <MiniCalendar value={editDraft.date ?? r.date ?? ''} onChange={v => setEditDraft(d => ({ ...d, date: v }))} />}
+                          <div className="flex gap-2 justify-end">
+                            <button onClick={() => { setEditingRemId(null); setEditDraft({}) }} className="text-xs text-gray-400 px-3 py-1.5 rounded-lg border border-gray-200">ביטול</button>
+                            <button onClick={() => { const u = { text: editDraft.text ?? r.text }; if (isMonthly) u.day = parseInt(editDraft.day ?? r.day); else u.date = editDraft.date ?? r.date; updateReminder(r.id, u); setEditingRemId(null); setEditDraft({}) }} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-medium">שמור</button>
+                          </div>
+                        </div>
+                      )
+                      return (
+                        <div key={r.id} className={`flex items-center justify-between px-4 py-3 transition-opacity ${isDoneToday ? 'opacity-40 cursor-pointer' : ''}`}
+                          onClick={isDoneToday ? () => isMonthly ? undoneReminderMonth(r.id, thisMonthKey) : undoneReminder(r.id) : undefined}>
+                          <div className="flex items-center gap-3 flex-1 text-right">
+                            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isDoneToday ? 'bg-gray-300' : 'bg-yellow-400'}`} />
+                            <div>
+                              <p className={`text-sm text-gray-800 ${isDoneToday ? '' : 'font-medium'}`}>🔔 {r.invId ? (() => { const inv = investments.find(i => i.id === r.invId); return inv ? `עדכון סכום ${inv.name}` : r.text })() : r.text}</p>
+                              <p className="text-xs text-gray-400">{isMonthly ? `חוזרת בכל ${r.day} לחודש` : r.date ? new Date(r.date + 'T00:00:00').toLocaleDateString('he-IL', { day: 'numeric', month: 'long' }) : ''}</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={e => { e.stopPropagation(); setEditingRemId(r.id); setEditDraft({}) }} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-lg font-medium">ערוך</button>
+                            <button onClick={e => { e.stopPropagation(); deleteReminder(r.id) }} className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium">מחק</button>
+                          </div>
+                        </div>
+                      )
+                    })
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+      {incomeEditItem && <IncomeEditModal item={incomeEditItem} onClose={() => setIncomeEditItem(null)} />}
+      {editTarget && <QuickAddModal editTarget={editTarget} onClose={() => setEditTarget(null)} />}
     </div>
   )
 }
@@ -924,7 +1305,7 @@ function Section({ title, icon, subtitle, toolbar, children }) {
   )
 }
 
-function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowAccounts, onDelete }) {
+function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowAccounts, onDelete, onEdit }) {
   const days = daysUntil(event.date instanceof Date ? event.date.toISOString() : String(event.date))
   const isIncome = event.amount > 0
   const c = colorMap[event.color] || colorMap.gray
@@ -948,7 +1329,7 @@ function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowA
           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${c.dot}`} />
           <div>
             <p className="text-sm font-medium text-gray-800">
-              {event.rolledOver && <span className="text-orange-400 text-xs ml-1">↩ הועבר מאתמול</span>}
+              {event.rolledOver && <span className="text-orange-400 text-xs ml-1">↩ {(() => { const orig = event.originalDate instanceof Date ? event.originalDate : new Date(event.originalDateStr); const yest = new Date(); yest.setDate(yest.getDate()-1); yest.setHours(0,0,0,0); return orig.toDateString() === yest.toDateString() ? 'הועבר מאתמול' : `הועבר מ-${orig.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}` })()}</span>}
               {event.name}
             </p>
             <p className="text-xs text-gray-400">
@@ -988,6 +1369,14 @@ function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowA
               </p>
             )}
           </div>
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 hover:bg-blue-100 hover:text-blue-500 transition-colors flex-shrink-0 text-sm"
+            >
+              ✎
+            </button>
+          )}
           {onConfirm && (
             <button
               onClick={onConfirm}

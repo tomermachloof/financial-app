@@ -200,7 +200,7 @@ export default function CalendarPage() {
                 <h3 className="font-bold text-white text-sm">{title}</h3>
                 <button onClick={() => setDetail(null)} className="text-white text-xl leading-none">×</button>
               </div>
-              <div className="overflow-y-auto divide-y divide-gray-100">
+              <div className="overflow-y-auto divide-y divide-gray-100 scroll-right">
                 {filtered.map(e => {
                   const amt = isUSD
                     ? `${isIn ? '+' : '-'}$${new Intl.NumberFormat('en').format(e.usdGross || e.usdAmount)}`

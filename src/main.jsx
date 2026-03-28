@@ -32,10 +32,36 @@ const renderApp = () => ReactDOM.createRoot(document.getElementById('root')).ren
   </React.StrictMode>
 )
 
-// Load state from Supabase before rendering
-loadState().then(cloudState => {
+// Load state from Supabase before rendering (5s timeout so a hang never blocks the app)
+const timeout = new Promise(resolve => setTimeout(resolve, 5000))
+Promise.race([loadState(), timeout]).then(cloudState => {
   if (cloudState) {
-    useStore.setState(patchCloudState(cloudState))
+    const local      = useStore.getState()
+    const localTime  = local.lastSaved  || 0
+    const cloudTime  = cloudState.lastSaved || 0
+
+    if (cloudTime > localTime) {
+      // הענן חדש יותר — טוען ממנו (סנכרון בין מכשירים)
+      const patched = patchCloudState(cloudState)
+
+      // Merge reminders: keep any local reminder not yet synced to cloud
+      const cloudRem  = patched.reminders || []
+      const localRem  = local.reminders  || []
+      const cloudIds  = new Set(cloudRem.map(r => r.id))
+      patched.reminders = [...cloudRem, ...localRem.filter(r => !cloudIds.has(r.id))]
+
+      // Same for dismissedEvents
+      const cloudDis = patched.dismissedEvents || []
+      const localDis = local.dismissedEvents  || []
+      const cloudDisIds = new Set(cloudDis.map(d => d.id + '|' + d.date))
+      patched.dismissedEvents = [...cloudDis, ...localDis.filter(d => !cloudDisIds.has(d.id + '|' + d.date))]
+
+      useStore.setState(patched)
+    } else {
+      // המקומי חדש יותר או שווה — שומרים על המקומי, לא מחליפים
+      // (ה-save ל-Supabase יקרה ב-useCloudSync ויסנכרן)
+      console.log('[Sync] local is newer or equal — keeping local state')
+    }
   }
   renderApp()
 }).catch(() => {

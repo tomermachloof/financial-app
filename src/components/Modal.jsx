@@ -26,7 +26,7 @@ export default function Modal({ title, onClose, children }) {
           </button>
         </div>
         {/* Content */}
-        <div className="overflow-y-auto flex-1 p-4">
+        <div className="overflow-y-auto flex-1 p-4 scroll-right">
           {children}
         </div>
       </div>

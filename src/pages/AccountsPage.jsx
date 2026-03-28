@@ -348,7 +348,7 @@ function DebtCard({ debt, onEdit, eurRate, usdRate }) {
   const isOwedToUs = debt.type === 'owed_to_us'
 
   const ilsAmount =
-    debt.currency === 'EUR' ? (debt.originalAmount || 0) * (eurRate || 3.61) :
+    debt.currency === 'EUR' ? (debt.originalAmount || 0) * (eurRate || 3.6283) :
     debt.currency === 'USD' ? (debt.originalAmount || 0) * (usdRate || 3.61) :
     (debt.amount || 0)
 

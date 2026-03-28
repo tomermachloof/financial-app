@@ -72,7 +72,7 @@ export const calcTotalLiquidity = (accounts, usdRate) =>
  * מחשב ערך ₪ של חוב לפי מטבע
  */
 const debtILS = (debt, rates) => {
-  if (debt.currency === 'EUR') return (debt.originalAmount || 0) * (rates?.eur || 3.61)
+  if (debt.currency === 'EUR') return (debt.originalAmount || 0) * (rates?.eur || 3.6283)
   if (debt.currency === 'USD') return (debt.originalAmount || 0) * (rates?.usd || 3.61)
   return debt.amount || 0
 }
@@ -81,14 +81,14 @@ const debtILS = (debt, rates) => {
  * סך נכסים (כולל חסכונות, השקעות)
  */
 const invILS = (inv, rates) => {
-  if (inv.currency === 'EUR') return (inv.originalAmount || 0) * (rates?.eur || 3.61)
+  if (inv.currency === 'EUR') return (inv.originalAmount || 0) * (rates?.eur || 3.6283)
   if (inv.currency === 'USD') return (inv.originalAmount || 0) * (rates?.usd || 3.61)
   return inv.value || 0
 }
 
 export const calcTotalAssets = (accounts, investments, debts, rates) => {
   const liquid   = accounts.reduce((s, a) => {
-    if (a.currency === 'USD') return s + (a.usdBalance || 0) * (rates?.usd || 3.65)
+    if (a.currency === 'USD') return s + (a.usdBalance || 0) * (rates?.usd || 3.61)
     return s + (a.balance || 0)
   }, 0)
   const invested = investments.reduce((s, i) => s + invILS(i, rates), 0)
@@ -118,7 +118,7 @@ export const calcNetWorth = (accounts, investments, loans, debts, rates) =>
  * סך יציאות חודשיות (הלוואות + הוצאות)
  */
 export const calcMonthlyOut = (loans, expenses, usdRate) => {
-  const rate = usdRate || 3.12
+  const rate = usdRate || 3.61
   const today = new Date()
   const mKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
   const loanPayments    = loans.reduce((s, l) => s + (l.monthlyPayment || 0) + (l.extras || []).reduce((e, x) => e + x.amount, 0), 0)
@@ -134,7 +134,7 @@ export const calcMonthlyOut = (loans, expenses, usdRate) => {
  * סך הכנסות חוזרות חודשיות (שכירויות)
  */
 export const calcMonthlyIn = (rentalIncome, usdRate) => {
-  const rate = usdRate || 3.12
+  const rate = usdRate || 3.61
   return rentalIncome.reduce((s, r) => {
     if (r.currency === 'USD') return s + (r.usdAmount || 0) * rate
     return s + (r.amount || 0)
@@ -146,7 +146,7 @@ export const calcMonthlyIn = (rentalIncome, usdRate) => {
  * = נזילות נוכחית − תשלומים שעוד לא ירדו החודש
  */
 export const calcSafeToSpend = (accounts, loans, expenses, usdRate) => {
-  const rate = usdRate || 3.12
+  const rate = usdRate || 3.61
   const today = new Date()
   const todayDay = today.getDate()
   const liquidity = calcTotalLiquidity(accounts, usdRate)
@@ -177,7 +177,7 @@ export const calcSafeToSpend = (accounts, loans, expenses, usdRate) => {
  * אירועים לחודש נתון (לכאלנדר)
  * מחזיר מערך מאוחד עם תאריך ביום החודש
  */
-export const getMonthEvents = (year, month, loans, expenses, rentalIncome, futureIncome, usdRate = 3.12) => {
+export const getMonthEvents = (year, month, loans, expenses, rentalIncome, futureIncome, usdRate = 3.61) => {
   const events = []
 
   // הלוואות
@@ -222,6 +222,7 @@ export const getMonthEvents = (year, month, loans, expenses, rentalIncome, futur
       if (isUSD) { ev.currency = 'USD'; ev.usdAmount = e.usdAmount; ev.usdDeductions = e.usdDeductions; ev.usdGross = e.usdGross }
       if (e.note)            ev.note            = e.note
       if (e.accountId)       ev.accountId       = e.accountId
+      if (e.destAccountId)   ev.destAccountId   = e.destAccountId
       if (e.noBalanceEffect) ev.noBalanceEffect  = true
       if (e.paidViaCredit)   ev.paidViaCredit    = true
       events.push(ev)
@@ -263,7 +264,7 @@ export const getMonthEvents = (year, month, loans, expenses, rentalIncome, futur
 /**
  * תשלומים ב-X הימים הקרובים
  */
-export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, days = 14, usdRate = 3.12, daysBack = 0) => {
+export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, days = 14, usdRate = 3.61, daysBack = 0) => {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const startFrom = new Date(today)
@@ -331,6 +332,7 @@ export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, d
           }
           if (item.note)            event.note            = item.note
           if (item.accountId)       event.accountId       = item.accountId
+          if (item.destAccountId)   event.destAccountId   = item.destAccountId
           if (item.noBalanceEffect) event.noBalanceEffect  = true
           if (item.paidViaCredit)   event.paidViaCredit    = true
           if (item.paidByFriend)    event.paidByFriend     = true

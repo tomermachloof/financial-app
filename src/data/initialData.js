@@ -24,10 +24,11 @@ export const initialInvestments = [
   { id: 'inv3', name: "חיסכון טהור פניקס תומר",        value: 323666,  type: 'pension',    owner: 'תומר'  },
   { id: 'inv5', name: "קרן השתלמות מור תומר",          value: 160694,  type: 'savings',    owner: 'תומר'  },
   { id: 'inv6', name: "קרן פנסיה פניקס תומר",          value: 10571,   type: 'pension',    owner: 'תומר'  },
-  { id: 'inv9', name: "קופת גמל להשקעה פניקס תומר",   value: 6218,    type: 'investment', owner: 'תומר'  },
+  { id: 'inv9',  name: "קופת גמל להשקעה פניקס תומר",  value: 6218,  type: 'investment', owner: 'תומר'  },
   // ── יעל — עדכני מדוח פברואר 2026 ──
-  { id: 'inv2', name: "חיסכון טהור פניקס יעל",         value: 301269,  type: 'pension',    owner: 'יעל'   },
-  { id: 'inv4', name: "קרן השתלמות מור יעל",           value: 182269,  type: 'savings',    owner: 'יעל'   },
+  { id: 'inv2',  name: "חיסכון טהור פניקס יעל",        value: 301269,  type: 'pension',    owner: 'יעל'   },
+  { id: 'inv4',  name: "קרן השתלמות מור יעל",          value: 182269,  type: 'savings',    owner: 'יעל'   },
+  { id: 'inv12', name: "קופת גמל אביגיל",              value: 0,       type: 'savings',    owner: 'יעל'   },
   // ── כספים אצל אחרים (שער חי) ──
   { id: 'inv10', name: "גיא משה",  value: 0, type: 'cash', owner: 'משותף', currency: 'EUR', originalAmount: 123600 },
   { id: 'inv11', name: "שליו",     value: 0, type: 'cash', owner: 'משותף', currency: 'USD', originalAmount: 42000  },
@@ -191,7 +192,7 @@ export const initialExpenses = [
   { id: 'e4',  name: "רוגובין",           amount: 4500,  chargeDay: 1,  category: 'business',  accountId: 'ba5', note: 'יעל עסקי בינלאומי' },
   { id: 'e5',  name: "שכירות בית",        amount: 10500, chargeDay: 24, category: 'rent',      accountId: 'ba2', note: 'תומר בינלאומי' },
   { id: 'e6',  name: "חשבונות בית",       amount: 2500,  chargeDay: null, category: 'utilities' },
-  { id: 'e9',  name: "קופת גמל אביגיל",   amount: 1500,  chargeDay: 15, category: 'savings',   accountId: 'ba2', note: 'תומר בינלאומי' },
+  { id: 'e9',  name: "קופת גמל אביגיל",   amount: 1500,  chargeDay: 15, category: 'savings',   accountId: 'ba4', note: 'יעל בינלאומי' },
   { id: 'e7',  name: "שכירות West Knoll", amount: 0, usdAmount: 3300, currency: 'USD', chargeDay: 1, category: 'rent', accountId: 'ba12', note: 'Chase Business' },
   { id: 'e8',  name: "יוסף — טסלה וחשבונות", amount: 0, usdAmount: 1250, usdDeductions: '-$425 -$67', currency: 'USD', chargeDay: 1, category: 'transport', accountId: 'ba12', note: 'Chase Business' },
   { id: 'e10', name: "רונן רואה חשבון",   amount: 531,   chargeDay: 6,  category: 'business',  accountId: 'ba5', note: 'בינלאומי עסקי יעל' },
