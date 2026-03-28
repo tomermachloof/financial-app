@@ -26,7 +26,7 @@ class ErrorBoundary extends React.Component {
 const checkVersion = async () => {
   try {
     const stored = localStorage.getItem('app_version')
-    const res = await fetch('/version.txt?t=' + Date.now(), { cache: 'no-store' })
+    const res = await fetch(import.meta.env.BASE_URL + 'version.txt?t=' + Date.now(), { cache: 'no-store' })
     const latest = (await res.text()).trim()
     if (!stored) { localStorage.setItem('app_version', latest); return }
     if (stored !== latest) { localStorage.setItem('app_version', latest); window.location.reload(true) }
