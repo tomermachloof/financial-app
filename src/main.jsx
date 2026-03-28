@@ -22,6 +22,18 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+// Auto-reload when a new version is deployed
+const checkVersion = async () => {
+  try {
+    const stored = localStorage.getItem('app_version')
+    const res = await fetch('/version.txt?t=' + Date.now(), { cache: 'no-store' })
+    const latest = (await res.text()).trim()
+    if (!stored) { localStorage.setItem('app_version', latest); return }
+    if (stored !== latest) { localStorage.setItem('app_version', latest); window.location.reload(true) }
+  } catch {}
+}
+checkVersion()
+
 const renderApp = () => ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary>
