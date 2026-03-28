@@ -12,7 +12,6 @@ const ACTIONS = [
   { id: 'offset',            icon: '⚖️', label: 'קיזוז חובות',       desc: 'חיוב מקזז חיוב' },
   { id: 'split_income',      icon: '✂️', label: 'פיצול הכנסה',       desc: 'חלק כסף בין חשבונות' },
   { id: 'transfer',          icon: '↔️', label: 'העברה בין חשבונות', desc: 'הזז כסף בין חשבונות' },
-  { id: 'past_event',        icon: '⚡', label: 'אירוע שכבר קרה',    desc: 'הכנסה/הוצאה לא מתוכננת' },
   { id: 'update_loan',       icon: '🏠', label: 'עדכון הלוואה',      desc: 'שנה ריבית, יתרה או תשלום' },
   { id: 'update_investment',  icon: '📈', label: 'עדכון השקעה',      desc: 'עדכן שווי תיק, פנסיה או חיסכון' },
 ]
