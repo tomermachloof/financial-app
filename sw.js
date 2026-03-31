@@ -3,6 +3,13 @@ const APP_URL = 'https://tomermachloof.github.io/financial-app/'
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', e => e.waitUntil(clients.claim()))
 
+// Always fetch fresh HTML so iOS PWA picks up new JS bundles
+self.addEventListener('fetch', e => {
+  if (e.request.mode === 'navigate') {
+    e.respondWith(fetch(e.request))
+  }
+})
+
 self.addEventListener('push', e => {
   if (!e.data) return
   const data = e.data.json()
