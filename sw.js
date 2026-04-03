@@ -1,13 +1,33 @@
 const APP_URL = 'https://tomermachloof.github.io/financial-app/'
 
-self.addEventListener('install', () => self.skipWaiting())
-self.addEventListener('activate', e => e.waitUntil(clients.claim()))
+self.addEventListener('install', (e) => {
+  // Force activate immediately — don't wait for old SW to die
+  e.waitUntil(
+    caches.keys().then(names => Promise.all(names.map(n => caches.delete(n))))
+      .then(() => self.skipWaiting())
+  )
+})
 
-// Always fetch fresh HTML so iOS PWA picks up new JS bundles
+self.addEventListener('activate', e => {
+  // Claim all clients immediately
+  e.waitUntil(
+    caches.keys().then(names => Promise.all(names.map(n => caches.delete(n))))
+      .then(() => clients.claim())
+  )
+})
+
+// NEVER cache anything — always fetch from network
+// This ensures iOS PWA always gets the latest JS bundles
 self.addEventListener('fetch', e => {
-  if (e.request.mode === 'navigate') {
-    e.respondWith(fetch(e.request))
-  }
+  // Let the browser handle non-GET requests normally
+  if (e.request.method !== 'GET') return
+
+  e.respondWith(
+    fetch(e.request).catch(() => {
+      // Only if network fails, try cache as absolute last resort
+      return caches.match(e.request)
+    })
+  )
 })
 
 self.addEventListener('push', e => {
