@@ -1,14 +1,32 @@
 # הוראות לפרויקט financial-app
 
-## עדכון memory
-לפני סיום כל שיחה, תומר יגיד "עדכן memory".
-אז יש לעדכן את קבצי ה-memory ב:
+## עדכון memory — אוטומטי ושוטף
+יש לעדכן את קבצי ה-memory ב:
 `C:\Users\yaele\.claude\projects\c--Users-yaele-Desktop-AI-LEARNING-1-financial-app\memory\`
 
+**חובה לעדכן מיד אחרי כל שינוי משמעותי** — לא לחכות לסוף השיחה.
+כל deploy, תיקון באג, פיצ'ר חדש, או החלטה חשובה — לשמור מיד.
+
 לשמור:
-- מה שינינו או הוספנו בשיחה
+- מה שינינו או הוספנו
 - החלטות חשובות שקיבלנו
 - בעיות פתוחות שנשארו
+## אימות אחרי deploy — חובה
+
+לא לומר "בוצע" לפני שמאמתים:
+```powershell
+powershell -Command "Invoke-WebRequest -Uri 'https://tomermachloof.github.io/financial-app/' -UseBasicParsing | Select-Object -ExpandProperty Content"
+```
+לבדוק שה-JS bundle ב-HTML תואם את מה שנבנה. רק אז להכריז על הצלחה.
+
+## deploy אוטומטי אחרי שינוי קוד
+
+**חובה:** אחרי כל שינוי קוד — להריץ מיד ללא שאלה:
+```bash
+npm run build && npm run deploy
+```
+לא לשאול "רוצה שאריץ?" — פשוט לריץ. תומר ציין שאלות מיותרות מבזבזות לו אנרגיה.
+
 # המערכת הפיננסית
 
 זו מערכת פיננסית אישית שנבנתה עבור תומר.

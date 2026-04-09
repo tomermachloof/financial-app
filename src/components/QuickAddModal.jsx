@@ -1,11 +1,16 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
+import { analyzeLoanDoc } from '../lib/analyzeLoanDoc'
 import useStore from '../store/useStore'
 import MiniCalendar from './MiniCalendar'
 import DayOfMonthPicker from './DayOfMonthPicker'
+import IncomeEditModal from './IncomeEditModal'
 
 const ACTIONS = [
+  { id: 'edit_income',        icon: '📗', label: 'עריכת הכנסה',      desc: 'עדכן ימי עבודה, סכום ועוד' },
   { id: 'reminder',      icon: '🔔', label: 'תזכורת',            desc: 'חד-פעמית או חודשית חוזרת' },
+  { id: 'add_task',           icon: '📋', label: 'משימה',            desc: 'משימה חד פעמית או חוזרת' },
   { id: 'income_expense', icon: '💸', label: 'הכנסה / הוצאה',    desc: 'חד פעמי או חוזר כל חודש' },
+  { id: 'new_loan',      icon: '➕', label: 'הלוואה חדשה',       desc: 'הוסף הלוואה או משכנתא למערכת' },
   { id: 'friend_loan',   icon: '🤝', label: 'הלוואה מחבר',      desc: 'קיבלתי כסף ואחזיר בתאריך' },
   { id: 'update_debt',   icon: '📝', label: 'עדכון חוב',         desc: 'שנה יתרת חוב קיים' },
   { id: 'update_balance',    icon: '🏦', label: 'עדכון יתרה',        desc: 'תקן יתרת חשבון' },
@@ -48,6 +53,7 @@ const Sel = ({ err, children, ...props }) => (
 export default function QuickAddModal({ onClose, editTarget }) {
   const {
     accounts, debts, loans, futureIncome, investments,
+    addLoan,
     addDebt, updateDebt,
     updateAccount,
     addFutureIncome, updateFutureIncome,
@@ -55,8 +61,12 @@ export default function QuickAddModal({ onClose, editTarget }) {
     updateLoan,
     updateInvestment,
     updateExpense,
+    updateExpenseMonthlyAmount,
+    updateRentalMonthlyAmount,
+    updateLoanMonthlyAmount,
     addReminder,
     addExpense,
+    addTask,
   } = useStore()
 
   const initForm = () => {
@@ -69,6 +79,30 @@ export default function QuickAddModal({ onClose, editTarget }) {
   const [splits, setSplits] = useState([{ accountId: '', amount: '' }])
   const [saved, setSaved]   = useState(false)
   const [errors, setErrors] = useState([])
+  const [incomeEditItem, setIncomeEditItem] = useState(null)
+  const [analyzing, setAnalyzing] = useState(false)
+  const fileInputRef = useRef(null)
+
+  const handleDocUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setAnalyzing(true)
+    const result = await analyzeLoanDoc(file)
+    setAnalyzing(false)
+    if (result.error) { alert('שגיאה: ' + result.error); return }
+    setForm(prev => ({
+      ...prev,
+      ...(result.name            && { name: result.name }),
+      ...(result.totalAmount     && { totalAmount: String(result.totalAmount) }),
+      ...(result.monthlyPayment  && { monthlyPayment: String(result.monthlyPayment) }),
+      ...(result.chargeDay       && { chargeDay: String(result.chargeDay) }),
+      ...(result.startDate       && { startDate: result.startDate }),
+      ...(result.durationMonths  && { durationMonths: String(result.durationMonths) }),
+      ...(result.interestRate    && { interestRate: String(result.interestRate) }),
+      ...(result.interestType    && { interestType: result.interestType }),
+      ...(result.notes           && { notes: result.notes }),
+    }))
+  }
 
   const fv = (key) => form[key] ?? ''
   const sv = (key, val) => { setForm(prev => ({ ...prev, [key]: val })); setErrors(prev => prev.filter(e => e !== key)) }
@@ -86,6 +120,35 @@ export default function QuickAddModal({ onClose, editTarget }) {
   const handleSave = () => {
     setErrors([])
     switch (step) {
+
+      case 'new_loan': {
+        const errs = []
+        if (!fv('name'))              errs.push('name')
+        if (!fv('totalAmount'))       errs.push('totalAmount')
+        if (!fv('monthlyPayment'))    errs.push('monthlyPayment')
+        if (!fv('chargeDay'))         errs.push('chargeDay')
+        if (!fv('startDate'))         errs.push('startDate')
+        if (!fv('creditAccountId'))   errs.push('creditAccountId')
+        if (!fv('accountId'))         errs.push('accountId')
+        if (errs.length) { setErrors(errs); return }
+        const interestType = fv('interestType') || 'fixed'
+        addLoan({
+          name:            fv('name'),
+          type:            fv('type') || 'loan',
+          totalAmount:     parseFloat(fv('totalAmount')),
+          monthlyPayment:  parseFloat(fv('monthlyPayment')),
+          chargeDay:       parseInt(fv('chargeDay')),
+          startDate:       fv('startDate'),
+          durationMonths:  fv('durationMonths') ? parseInt(fv('durationMonths')) : null,
+          interestRate:    fv('interestRate') ? parseFloat(fv('interestRate')) : null,
+          interestType,
+          creditAccountId: fv('creditAccountId') || null,
+          accountId:       fv('accountId') || null,
+          owner:           fv('owner') || 'תומר',
+          notes:           fv('notes') || '',
+        })
+        flash(); break
+      }
 
       case 'friend_loan': {
         const amount = parseFloat(fv('amount'))
@@ -134,16 +197,33 @@ export default function QuickAddModal({ onClose, editTarget }) {
           } else if (type === 'future') {
             updateFutureIncome(item.id, { name: fv('name'), amount: item.isPayment ? -amount : amount, expectedDate: fv('date') || null, accountId: fv('accountId') || null })
           }
+          // One-time monthly override
+          const oneTime = parseFloat(fv('oneTimeAmount'))
+          if (!isNaN(oneTime) && oneTime > 0) {
+            const now = new Date()
+            const mKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+            if (type === 'expense') updateExpenseMonthlyAmount(item.id, mKey, oneTime)
+            else if (type === 'rental') updateRentalMonthlyAmount(item.id, mKey, oneTime)
+          }
           flash(); break
         }
+        const isUsdCur = fv('currency') === 'USD'
         if (isMonthly && isIncome) {
-          addRentalIncome({ name: fv('name'), amount, chargeDay: parseInt(fv('chargeDay')), accountId: fv('accountId') || null })
+          const item = { name: fv('name'), chargeDay: parseInt(fv('chargeDay')), accountId: fv('accountId') || null }
+          if (isUsdCur) { item.currency = 'USD'; item.usdAmount = amount } else { item.amount = amount }
+          addRentalIncome(item)
         } else if (isMonthly && !isIncome) {
-          addExpense({ name: fv('name'), amount, chargeDay: parseInt(fv('chargeDay')), category: 'other', accountId: fv('accountId') || null, destAccountId: fv('destAccountId') || null, note: '', monthlyAmounts: {} })
+          const item = { name: fv('name'), chargeDay: parseInt(fv('chargeDay')), category: 'other', accountId: fv('accountId') || null, destAccountId: fv('destAccountId') || null, note: '', monthlyAmounts: {} }
+          if (isUsdCur) { item.currency = 'USD'; item.usdAmount = amount } else { item.amount = amount }
+          addExpense(item)
         } else if (!isMonthly && isIncome) {
-          addFutureIncome({ name: fv('name'), amount, expectedDate: fv('date') || null, accountId: fv('accountId') || null })
+          const item = { name: fv('name'), amount, expectedDate: fv('date') || null, accountId: fv('accountId') || null }
+          if (isUsdCur) item.currency = 'USD'
+          addFutureIncome(item)
         } else {
-          addFutureIncome({ name: fv('name'), amount: -amount, expectedDate: fv('date'), isPayment: true, accountId: fv('accountId') || null })
+          const item = { name: fv('name'), amount: -amount, expectedDate: fv('date'), isPayment: true, accountId: fv('accountId') || null }
+          if (isUsdCur) item.currency = 'USD'
+          addFutureIncome(item)
         }
         flash(); break
       }
@@ -263,7 +343,16 @@ export default function QuickAddModal({ onClose, editTarget }) {
         const upd = { [fv('field') || 'balanceOverride']: val }
         const cd = parseInt(fv('chargeDay'))
         if (editTarget?.item && !isNaN(cd) && cd > 0) upd.chargeDay = cd
+        if (fv('accountId')) upd.accountId = fv('accountId')
+        if (fv('startDate')) upd.startDate = fv('startDate')
         updateLoan(fv('loanId'), upd)
+        // One-time monthly override
+        const oneTimeLoan = parseFloat(fv('oneTimeAmount'))
+        if (!isNaN(oneTimeLoan) && oneTimeLoan > 0) {
+          const now = new Date()
+          const mKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+          updateLoanMonthlyAmount(fv('loanId'), mKey, oneTimeLoan)
+        }
         flash(); break
       }
 
@@ -282,12 +371,123 @@ export default function QuickAddModal({ onClose, editTarget }) {
         flash(); break
       }
 
+      case 'add_task': {
+        const errs = []
+        if (!fv('taskName')) errs.push('taskName')
+        const isMonthly = fv('taskFreq') === 'monthly'
+        if (isMonthly && !fv('taskDay')) errs.push('taskDay')
+        if (!isMonthly && !fv('taskDate')) errs.push('taskDate')
+        if (errs.length) { setErrors(errs); return }
+        addTask({
+          name: fv('taskName'),
+          freq: isMonthly ? 'monthly' : 'once',
+          ...(isMonthly ? { day: parseInt(fv('taskDay')) } : { date: fv('taskDate') }),
+        })
+        flash(); break
+      }
+
       default: break
     }
   }
 
   const renderForm = () => {
     switch (step) {
+
+      case 'new_loan': return (<>
+        {/* העלאת מסמך */}
+        <div className="mb-4">
+          <input ref={fileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleDocUpload} />
+          <div
+            onClick={() => !analyzing && fileInputRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); e.currentTarget.dataset.drag = '1' }}
+            onDragLeave={e => { delete e.currentTarget.dataset.drag }}
+            onDrop={e => {
+              e.preventDefault()
+              delete e.currentTarget.dataset.drag
+              const file = e.dataTransfer.files?.[0]
+              if (file) handleDocUpload({ target: { files: [file] } })
+            }}
+            className={`w-full py-5 rounded-xl border-2 border-dashed transition-colors cursor-pointer flex flex-col items-center justify-center gap-1
+              ${analyzing ? 'border-blue-300 bg-blue-50' : 'border-blue-300 bg-blue-50 hover:bg-blue-100 active:opacity-70'}`}
+          >
+            <span className="text-2xl">{analyzing ? '⏳' : '📄'}</span>
+            <span className="text-blue-700 text-sm font-medium">
+              {analyzing ? 'מנתח מסמך...' : 'גרור לכאן PDF / תמונה'}
+            </span>
+            {!analyzing && <span className="text-blue-400 text-xs">או לחץ לבחירת קובץ</span>}
+            {analyzing && <span className="text-gray-400 text-xs">Claude קורא ומזין אוטומטית...</span>}
+          </div>
+        </div>
+        {/* סוג */}
+        <div className="flex gap-2 mb-4">
+          {[['loan','הלוואה'],['mortgage','משכנתא']].map(([val,lbl]) => (
+            <button key={val} onClick={() => sv('type', val)}
+              className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${(fv('type')||'loan')===val ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+        <F label="שם ההלוואה" name="name" errors={errors}>
+          <Inp err={e('name')} value={fv('name')} onChange={ev => sv('name', ev.target.value)} placeholder="לדוג׳: הלוואה בנק לאומי" />
+        </F>
+        <div className="flex gap-3">
+          <F label="סכום כולל (₪)" name="totalAmount" errors={errors}>
+            <Inp err={e('totalAmount')} type="number" value={fv('totalAmount')} onChange={ev => sv('totalAmount', ev.target.value)} />
+          </F>
+          <F label="תשלום חודשי (₪)" name="monthlyPayment" errors={errors}>
+            <Inp err={e('monthlyPayment')} type="number" value={fv('monthlyPayment')} onChange={ev => sv('monthlyPayment', ev.target.value)} />
+          </F>
+        </div>
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <F label="יום חיוב בחודש" name="chargeDay" errors={errors}>
+              <DayOfMonthPicker value={fv('chargeDay')} onChange={v => sv('chargeDay', v)} hasError={e('chargeDay')} />
+            </F>
+          </div>
+          <F label="מספר תשלומים" name="durationMonths" errors={errors}>
+            <Inp type="number" value={fv('durationMonths')} onChange={ev => sv('durationMonths', ev.target.value)} placeholder="לדוג׳ 120" />
+          </F>
+        </div>
+        <F label="תאריך התחלה" name="startDate" errors={errors}>
+          <Inp err={e('startDate')} type="date" value={fv('startDate')} onChange={ev => sv('startDate', ev.target.value)} />
+        </F>
+        {/* ריבית */}
+        <div className="flex gap-2 mb-1">
+          {[['fixed','קבועה'],['prime','פריים'],['variable','משתנה']].map(([val,lbl]) => (
+            <button key={val} onClick={() => sv('interestType', val)}
+              className={`flex-1 py-1.5 rounded-xl text-xs font-medium border transition-colors ${(fv('interestType')||'fixed')===val ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+        <F label="ריבית (%)" name="interestRate" errors={errors}>
+          <Inp type="number" step="0.01" value={fv('interestRate')} onChange={ev => sv('interestRate', ev.target.value)} placeholder="לדוג׳ 4.5" />
+        </F>
+        <div className="flex gap-3">
+          <F label="לאיזה חשבון נכנסה ההלוואה" name="creditAccountId" errors={errors}>
+            <Sel err={e('creditAccountId')} value={fv('creditAccountId')} onChange={ev => sv('creditAccountId', ev.target.value)}>
+              <option value="">בחר חשבון</option>
+              {ilsAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </Sel>
+          </F>
+          <F label="מאיזה חשבון יורד התשלום" name="accountId" errors={errors}>
+            <Sel err={e('accountId')} value={fv('accountId')} onChange={ev => sv('accountId', ev.target.value)}>
+              <option value="">בחר חשבון</option>
+              {ilsAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </Sel>
+          </F>
+        </div>
+        <F label="בעלים" name="owner" errors={errors}>
+          <Sel value={fv('owner')||'תומר'} onChange={ev => sv('owner', ev.target.value)}>
+            <option value="תומר">תומר</option>
+            <option value="יעל">יעל</option>
+            <option value="משותף">משותף</option>
+          </Sel>
+        </F>
+        <F label="הערות (אופציונלי)" name="notes" errors={errors}>
+          <Inp value={fv('notes')} onChange={ev => sv('notes', ev.target.value)} placeholder="לדוג׳: הלוואה לרכב" />
+        </F>
+      </>)
 
       case 'friend_loan': return (<>
         <F label="שם המלווה" name="lenderName" errors={errors}>
@@ -321,7 +521,10 @@ export default function QuickAddModal({ onClose, editTarget }) {
         const isIncome  = (fv('kind') || 'expense') === 'income'
         const isEditMode = !!editTarget?.item
         const isUSD = editTarget?.item?.currency === 'USD'
-        const currSymbol = isUSD ? '$' : '₪'
+        const isUsdCurUI = isEditMode ? isUSD : (fv('currency') === 'USD')
+        const currSymbol = isUsdCurUI ? '$' : '₪'
+        const usdAccounts = accounts.filter(a => a.currency === 'USD')
+        const availableAccounts = isUsdCurUI ? usdAccounts : ilsAccounts
         return (<>
           {!isEditMode && <div className="flex gap-2 mb-4">
             {['once', 'monthly'].map(t => (
@@ -341,12 +544,26 @@ export default function QuickAddModal({ onClose, editTarget }) {
               </button>
             ))}
           </div>}
+          {!isEditMode && <div className="flex gap-2 mb-4">
+            {['ILS', 'USD'].map(c => (
+              <button key={c} onClick={() => { sv('currency', c); sv('accountId', '') }}
+                className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                  (fv('currency') || 'ILS') === c ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>
+                {c === 'ILS' ? '₪ שקל' : '$ דולר'}
+              </button>
+            ))}
+          </div>}
           <F label="שם" name="name" errors={errors}>
             <Inp err={e('name')} value={fv('name')} onChange={ev => sv('name', ev.target.value)} />
           </F>
           <F label={isMonthly ? `סכום חודשי (${currSymbol})` : `סכום (${currSymbol})`} name="amount" errors={errors}>
             <Inp err={e('amount')} type="number" value={fv('amount')} onChange={ev => sv('amount', ev.target.value)} />
           </F>
+          {isEditMode && isMonthly && (
+            <F label={`שינוי חד פעמי לחודש הנוכחי (${currSymbol})`} name="oneTimeAmount" errors={errors}>
+              <Inp type="number" placeholder="השאר ריק אם אין שינוי" value={fv('oneTimeAmount') || ''} onChange={ev => sv('oneTimeAmount', ev.target.value)} />
+            </F>
+          )}
           {isMonthly ? (
             <F label="יום בחודש" name="chargeDay" errors={errors}>
               <DayOfMonthPicker value={fv('chargeDay')} onChange={v => sv('chargeDay', v)} hasError={e('chargeDay')} />
@@ -359,7 +576,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
           <F label={isIncome ? 'חשבון יעד' : 'חשבון מקור'} name="accountId" errors={errors}>
             <Sel value={fv('accountId')} onChange={ev => sv('accountId', ev.target.value)}>
               <option value="">לא מקושר</option>
-              {ilsAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              {availableAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </Sel>
           </F>
           {isMonthly && !isIncome && (
@@ -367,7 +584,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
               <Sel value={fv('destAccountId')} onChange={ev => sv('destAccountId', ev.target.value)}>
                 <option value="">ללא</option>
                 <optgroup label="חשבונות בנק">
-                  {ilsAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  {availableAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </optgroup>
                 <optgroup label="השקעות">
                   {investments.map(i => <option key={i.id} value={`inv:${i.id}`}>{i.name}</option>)}
@@ -459,7 +676,8 @@ export default function QuickAddModal({ onClose, editTarget }) {
 
       case 'transfer': {
         const from = accounts.find(a => a.id === fv('fromId'))
-        const compatible = fv('fromId') ? accounts.filter(a => a.id !== fv('fromId') && a.currency === (from?.currency || 'ILS')) : accounts
+        const fromCurrency = from?.currency || 'ILS'
+        const compatible = fv('fromId') ? accounts.filter(a => a.id !== fv('fromId') && (a.currency || 'ILS') === fromCurrency) : accounts
         return (<>
           <F label="מחשבון" name="fromId" errors={errors}>
             <Sel err={e('fromId')} value={fv('fromId')} onChange={ev => { sv('fromId', ev.target.value); sv('toId', '') }}>
@@ -470,7 +688,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
           <F label="לחשבון" name="toId" errors={errors}>
             <Sel err={e('toId')} value={fv('toId')} onChange={ev => sv('toId', ev.target.value)}>
               <option value="">בחר</option>
-              {compatible.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              {compatible.map(a => <option key={a.id} value={a.id}>{a.name} ({a.currency === 'USD' ? `$${(a.usdBalance||0).toLocaleString()}` : `₪${(a.balance||0).toLocaleString()}`})</option>)}
             </Sel>
           </F>
           <F label="סכום" name="amount" errors={errors}>
@@ -595,8 +813,26 @@ export default function QuickAddModal({ onClose, editTarget }) {
             <Inp err={e('value')} type="number" value={fv('value')} onChange={ev => sv('value', ev.target.value)} />
           </F>
           {editTarget?.item && (
+            <F label="שינוי חד פעמי לחודש הנוכחי (₪)" name="oneTimeAmount" errors={errors}>
+              <Inp type="number" placeholder="השאר ריק אם אין שינוי" value={fv('oneTimeAmount') || ''} onChange={ev => sv('oneTimeAmount', ev.target.value)} />
+            </F>
+          )}
+          {editTarget?.item && (
             <F label="יום חיוב בחודש" name="chargeDay" errors={errors}>
               <DayOfMonthPicker value={fv('chargeDay')} onChange={v => sv('chargeDay', v)} />
+            </F>
+          )}
+          {selLoan && (
+            <F label="תאריך תחילת הלוואה" name="startDate" errors={errors}>
+              <Inp type="date" value={fv('startDate') || selLoan.startDate || ''} onChange={ev => sv('startDate', ev.target.value)} />
+            </F>
+          )}
+          {selLoan && (
+            <F label="חשבון חיוב חודשי" name="accountId" errors={errors}>
+              <Sel value={fv('accountId') || selLoan.accountId || ''} onChange={ev => sv('accountId', ev.target.value)}>
+                <option value="">לא נבחר</option>
+                {accounts.filter(a => (a.currency || 'ILS') === 'ILS').map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </Sel>
             </F>
           )}
         </>)
@@ -620,6 +856,33 @@ export default function QuickAddModal({ onClose, editTarget }) {
           <F label={`שווי עדכני (${symbol})`} name="newValue" errors={errors}>
             <Inp err={e('newValue')} type="number" value={fv('newValue')} onChange={ev => sv('newValue', ev.target.value)} />
           </F>
+        </>)
+      }
+
+      case 'add_task': {
+        const isMonthly = fv('taskFreq') === 'monthly'
+        return (<>
+          <div className="flex gap-2 mb-4">
+            {['once', 'monthly'].map(t => (
+              <button key={t} onClick={() => sv('taskFreq', t)}
+                className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                  (fv('taskFreq') || 'once') === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>
+                {t === 'once' ? 'חד פעמי' : 'חוזר כל חודש'}
+              </button>
+            ))}
+          </div>
+          <F label="תיאור המשימה" name="taskName" errors={errors}>
+            <Inp err={e('taskName')} value={fv('taskName')} onChange={ev => sv('taskName', ev.target.value)} placeholder="לדוג׳: לבטל דמי כרטיס" />
+          </F>
+          {isMonthly ? (
+            <F label="יום בחודש" name="taskDay" errors={errors}>
+              <DayOfMonthPicker value={fv('taskDay')} onChange={v => sv('taskDay', v)} hasError={e('taskDay')} />
+            </F>
+          ) : (
+            <F label="תאריך" name="taskDate" errors={errors}>
+              <MiniCalendar value={fv('taskDate')} onChange={v => sv('taskDate', v)} hasError={e('taskDate')} />
+            </F>
+          )}
         </>)
       }
 
@@ -661,6 +924,24 @@ export default function QuickAddModal({ onClose, editTarget }) {
                 </button>
               ))}
             </div>
+          ) : step === 'edit_income' ? (
+            <div className="space-y-2">
+              {futureIncome.filter(f => f.status === 'pending').length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-4">אין הכנסות פעילות לעריכה</p>
+              )}
+              {futureIncome.filter(f => f.status === 'pending').map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => setIncomeEditItem(item)}
+                  className="w-full flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 active:bg-gray-100 transition-colors"
+                >
+                  <span className="font-semibold text-gray-800 text-sm">{item.name}</span>
+                  <span className="text-green-600 font-bold text-sm">
+                    {item.amount ? `₪${Number(item.amount).toLocaleString('he-IL')}` : '—'}
+                  </span>
+                </button>
+              ))}
+            </div>
           ) : (
             <>
               <div className="mt-1">{renderForm()}</div>
@@ -674,6 +955,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
               </button>
             </>
           )}
+          {incomeEditItem && <IncomeEditModal item={incomeEditItem} onClose={() => { setIncomeEditItem(null); onClose() }} />}
         </div>
       </div>
     </div>
