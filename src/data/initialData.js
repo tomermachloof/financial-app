@@ -44,7 +44,7 @@ export const initialLoans = [
     interestRate: null, interestType: 'fixed',
     startDate: null, owner: 'משותף', type: 'mortgage',
     // הוחלט: מחשבון מזרחי תומר | ₪7,500 − ₪3,100 שכ׳ סוקולוב = ₪4,400 בפועל
-    creditAccountId: 'ba8', accountId: 'ba8', effectiveAmount: 4400,
+    accountId: 'ba8', effectiveAmount: 4400,
     note: 'מזרחי | ₪4,400 בפועל (₪7,500 − ₪3,100 סוקולוב)',
   },
   {
@@ -54,7 +54,7 @@ export const initialLoans = [
     interestRate: null, interestType: 'fixed',
     startDate: null, owner: 'משותף', type: 'mortgage',
     balanceOverride: 530361,
-    creditAccountId: 'ba6', accountId: 'ba6', note: 'יעל לאומי',
+    accountId: 'ba6', note: 'יעל לאומי',
   },
   {
     id: 'l3', name: "הלוואה לאומי יעל",
@@ -62,7 +62,7 @@ export const initialLoans = [
     chargeDay: 15, durationMonths: 60,
     interestRate: 6.0, interestType: 'fixed',
     startDate: '2021-11-18', owner: 'יעל', type: 'loan',
-    creditAccountId: 'ba6', accountId: 'ba6', note: 'יעל לאומי',
+    accountId: 'ba6', note: 'יעל לאומי',
   },
   {
     id: 'l4', name: "הלוואה פועלים מאי",
@@ -70,7 +70,7 @@ export const initialLoans = [
     chargeDay: 12, durationMonths: 120,
     interestRate: 5.0, interestType: 'prime-0.5',
     startDate: '2021-11-07', owner: 'משותף', type: 'loan',
-    creditAccountId: 'ba1', accountId: 'ba1', note: 'תומר פועלים',
+    accountId: 'ba1', note: 'תומר פועלים',
   },
   {
     id: 'l5', name: "הלוואה קרן השתלמות מור תומר",
@@ -78,7 +78,7 @@ export const initialLoans = [
     chargeDay: 5, durationMonths: 9,
     interestRate: 4.8, interestType: 'prime-0.7',
     startDate: '2026-02-12', owner: 'תומר', type: 'loan',
-    creditAccountId: 'ba2', accountId: 'ba2', note: 'תומר בינלאומי',
+    accountId: 'ba2', note: 'תומר בינלאומי',
   },
   {
     id: 'l6', name: "יעל הלוואה קרן השתלמות מור",
@@ -86,7 +86,7 @@ export const initialLoans = [
     chargeDay: 5, durationMonths: 37,
     interestRate: 4.8, interestType: 'prime-0.7',
     startDate: '2026-02-12', owner: 'יעל', type: 'loan',
-    creditAccountId: 'ba6', accountId: 'ba6', note: 'יעל לאומי',
+    accountId: 'ba6', note: 'יעל לאומי',
   },
   {
     id: 'l7', name: "יעל הלוואה פניקס 1",
@@ -95,7 +95,7 @@ export const initialLoans = [
     interestRate: 5.0, interestType: 'prime-0.5',
     startDate: null, owner: 'יעל', type: 'loan',
     balanceOverride: 30000,
-    creditAccountId: 'ba6', accountId: 'ba6', note: 'יעל לאומי',
+    accountId: 'ba6', note: 'יעל לאומי',
   },
   {
     id: 'l8', name: "יעל הלוואה פניקס 2",
@@ -104,7 +104,7 @@ export const initialLoans = [
     interestRate: 5.0, interestType: 'prime-0.5',
     startDate: null, owner: 'יעל', type: 'loan',
     balanceOverride: 30000,
-    creditAccountId: 'ba6', accountId: 'ba6', note: 'יעל לאומי',
+    accountId: 'ba6', note: 'יעל לאומי',
   },
   {
     id: 'l9', name: "הלוואה תומר פניקס",
@@ -112,7 +112,7 @@ export const initialLoans = [
     chargeDay: 1, durationMonths: 12,
     interestRate: 5.0, interestType: 'prime-0.5',
     startDate: '2025-12-31', owner: 'תומר', type: 'loan',
-    creditAccountId: 'ba2', accountId: 'ba2', note: 'תומר בינלאומי',
+    accountId: 'ba2', note: 'תומר בינלאומי',
   },
   {
     id: 'l10', name: "יעל הלוואה דיסקונט",
@@ -120,7 +120,7 @@ export const initialLoans = [
     chargeDay: 20, durationMonths: 36,
     interestRate: 0, interestType: 'fixed',
     startDate: '2026-03-20', owner: 'יעל', type: 'loan',
-    creditAccountId: 'ba10', accountId: 'ba10', note: 'דיסקונט יעל',
+    accountId: 'ba10', note: 'דיסקונט יעל',
   },
   {
     id: 'l11', name: "תומר הלוואה דיסקונט",
@@ -128,7 +128,7 @@ export const initialLoans = [
     chargeDay: 20, durationMonths: 36,
     interestRate: 0, interestType: 'fixed',
     startDate: '2026-03-20', owner: 'תומר', type: 'loan',
-    creditAccountId: 'ba9', accountId: 'ba9', note: 'דיסקונט תומר',
+    accountId: 'ba9', note: 'דיסקונט תומר',
   },
   {
     id: 'l12', name: "עוגן 2",
@@ -136,7 +136,7 @@ export const initialLoans = [
     chargeDay: 10, durationMonths: 60,
     interestRate: 0, interestType: 'fixed',
     startDate: '2024-02-28', owner: 'משותף', type: 'loan',
-    creditAccountId: 'ba1', accountId: 'ba1', note: 'תומר פועלים',
+    accountId: 'ba1', note: 'תומר פועלים',
   },
   {
     id: 'l15', name: "יוסף — טלפון",
@@ -145,7 +145,7 @@ export const initialLoans = [
     interestRate: 0, interestType: 'fixed',
     startDate: '2025-08-15', owner: 'תומר', type: 'loan',
     currency: 'USD',
-    creditAccountId: 'ba12', accountId: 'ba12', note: 'Chase Business',
+    accountId: 'ba12', note: 'Chase Business',
   },
   {
     id: 'l16', name: "יוסף — קייס",
@@ -154,7 +154,7 @@ export const initialLoans = [
     interestRate: 0, interestType: 'fixed',
     startDate: '2025-08-15', owner: 'תומר', type: 'loan',
     currency: 'USD',
-    creditAccountId: 'ba12', accountId: 'ba12', note: 'Chase Business',
+    accountId: 'ba12', note: 'Chase Business',
   },
   {
     id: 'l17', name: "אליעזר — פועלים",
@@ -162,7 +162,7 @@ export const initialLoans = [
     chargeDay: 20, durationMonths: 24,
     interestRate: 6.0, interestType: 'prime+0.5',
     startDate: '2026-01-07', owner: 'תומר', type: 'loan',
-    creditAccountId: 'ba1', accountId: 'ba1', note: 'תומר פועלים',
+    accountId: 'ba1', note: 'תומר פועלים',
     paidByFriend: true, friendName: 'אליעזר', reminderDaysBefore: 2,
     balanceOverride: 230526,
     extras: [{ name: 'שעון', amount: 3700, remainingPayments: 7 }],
@@ -173,7 +173,7 @@ export const initialLoans = [
     chargeDay: 1, durationMonths: 16,
     interestRate: 6.0, interestType: 'prime+0.5',
     startDate: '2026-01-16', owner: 'תומר', type: 'loan',
-    creditAccountId: 'ba2', accountId: 'ba2', note: 'תומר בינלאומי',
+    accountId: 'ba2', note: 'תומר בינלאומי',
     paidByFriend: true, friendName: 'אליעזר', reminderDaysBefore: 2,
     balanceOverride: 188251,
   },
@@ -186,7 +186,6 @@ export const initialExpenses = [
   { id: 'e_cc1', name: "תומר פליי קארד",       amount: 20000, chargeDay: 10, category: 'credit', accountId: 'ba2', note: 'תומר בינלאומי', monthlyAmounts: {} },
   { id: 'e_cc2', name: "אמריקן אקספרס תומר",   amount: 1000,  chargeDay: 10, category: 'credit', accountId: 'ba2', note: 'תומר בינלאומי', monthlyAmounts: {} },
   { id: 'e_cc3', name: "יעל פליי קארד",         amount: 4000,  chargeDay: 10, category: 'credit', accountId: 'ba4', note: 'יעל בינלאומי',  monthlyAmounts: {} },
-  { id: 'e_cc4', name: "כרטיס מזרחי",           amount: 3000,  chargeDay: 2,  category: 'credit', accountId: 'ba8', note: 'תומר מזרחי',    monthlyAmounts: {} },
   // רכב — גוהץ באשראי, לא מנכה מהחשבון ישירות
   { id: 'e2',  name: "רכב",               amount: 3100,  chargeDay: 19, category: 'transport', paidViaCredit: true, note: 'גוהץ באשראי — נכלל בחיוב ב-10' },
   { id: 'e3',  name: "רואה חשבון",        amount: 550,   chargeDay: null, category: 'business' },

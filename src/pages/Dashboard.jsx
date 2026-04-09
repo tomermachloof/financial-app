@@ -4,14 +4,12 @@ import MiniCalendar from '../components/MiniCalendar'
 import DayOfMonthPicker from '../components/DayOfMonthPicker'
 import QuickAddModal from '../components/QuickAddModal'
 import IncomeEditModal from '../components/IncomeEditModal'
-import PartialPaymentModal from '../components/PartialPaymentModal'
 import {
   calcTotalLiquidity, calcNetWorth, calcSafeToSpend,
   calcMonthlyOut, calcMonthlyIn, getUpcomingEvents, calcRemainingBalance,
 } from '../utils/calculations'
 import { formatILS, formatDateShort, daysUntil } from '../utils/formatters'
 import { getPushStatus, subscribeToPush, unsubscribeFromPush } from '../lib/pushNotifications'
-import { loadState } from '../lib/supabase'
 
 const colorMap = {
   red:    { bg: 'bg-red-50',    text: 'text-red-600',    dot: 'bg-red-400'    },
@@ -27,10 +25,7 @@ const RANGE_OPTIONS = [
 ]
 
 export default function Dashboard() {
-  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, reminders, doneReminder, doneReminderMonth, undoneReminder, undoneReminderMonth, deleteReminder, updateReminder, updateInvestment, deleteFutureIncome, deleteExpense, deleteRentalIncome, dismissedEvents, dismissEvent, tasks, completeTask, uncompleteTask, deleteTask } = useStore()
-
-  const [activeUser, setActiveUserState] = useState(() => localStorage.getItem('dash_activeUser') || 'tomer')
-  const setActiveUser = v => { setActiveUserState(v); localStorage.setItem('dash_activeUser', v) }
+  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, reminders, doneReminder, doneReminderMonth, undoneReminder, undoneReminderMonth, deleteReminder, updateReminder, updateInvestment, deleteFutureIncome, deleteExpense, deleteRentalIncome, dismissedEvents, dismissEvent } = useStore()
 
   const [rangeDays, setRangeDays] = useState(14)
   const [filterType, setFilterType] = useState('all') // 'all' | 'income' | 'expense'
@@ -46,12 +41,8 @@ export default function Dashboard() {
   const [showDataModal, setShowDataModal] = useState(false)
   const [dataTab, setDataTab] = useState('reminders')
   const [incomeEditItem, setIncomeEditItem] = useState(null)
-  const [partialPayItem, setPartialPayItem] = useState(null)
   const [editingRemId, setEditingRemId] = useState(null)
   const [editTarget, setEditTarget] = useState(null)
-  const [peeking, setPeeking] = useState(false)
-  const [discountExpanded, setDiscountExpanded] = useState(null) // discount account id or null
-  const [discountSourceId, setDiscountSourceId] = useState('')
   const [editDraft, setEditDraft] = useState({})
   const [invUpdateRem, setInvUpdateRem] = useState(null) // { remId, invId, newValue }
   const [pushStatus, setPushStatus] = useState('loading')
@@ -90,21 +81,9 @@ export default function Dashboard() {
   const todayStr     = today.toISOString().split('T')[0]
   const yesterday    = new Date(today); yesterday.setDate(yesterday.getDate() - 1)
   const yesterdayStr = yesterday.toISOString().split('T')[0]
-  const tomorrow     = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
-  const tomorrowStr  = tomorrow.toISOString().split('T')[0]
-  const tomorrowMonthKey = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}`
   const thisMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
 
-  const isConfirmed  = (id, dateStr) => {
-    const baseId = id.replace(/_m\d+$/, '')
-    const month = dateStr?.slice(0, 7)
-    return confirmedEvents.some(e => {
-      const eBase = (e.id || '').replace(/_m\d+$/, '')
-      if (eBase !== baseId && e.id !== baseId) return false
-      // Exact date match or same month (for recurring events)
-      return e.date === dateStr || e.date?.slice(0, 7) === month
-    })
-  }
+  const isConfirmed  = (id, dateStr) => confirmedEvents.some(e => e.id === id && e.date === dateStr)
   const accountMap   = Object.fromEntries(accounts.map(a => [a.id, a.name]))
 
   const handleEditEvent = (event) => {
@@ -112,7 +91,7 @@ export default function Dashboard() {
     let item, type, action, form
     if (event.type === 'loan') {
       item = loans.find(l => l.id === baseId); type = 'loan'; action = 'update_loan'
-      if (item) form = { loanId: item.id, field: 'monthlyPayment', value: String(item.monthlyPayment || ''), chargeDay: String(item.chargeDay || ''), accountId: item.accountId || '' }
+      if (item) form = { loanId: item.id, field: 'monthlyPayment', value: String(item.monthlyPayment || ''), chargeDay: String(item.chargeDay || '') }
     } else if (event.type === 'expense') {
       item = expenses.find(e => e.id === baseId); type = 'expense'; action = 'income_expense'
       if (item) form = { freq: 'monthly', kind: 'expense', name: item.name, amount: String(item.currency === 'USD' ? (item.usdAmount || '') : (item.amount || '')), chargeDay: item.chargeDay, accountId: item.accountId || '', destAccountId: item.destAccountId || '' }
@@ -162,8 +141,7 @@ export default function Dashboard() {
   const ccMonthLabel    = `אשראי ${today.toLocaleDateString('he-IL', { month: 'long' })}`
   const confirmCCRolledOver = () => ccExpenses.forEach(e => {
     const amt = e.monthlyAmounts?.[thisMonthKey] ?? e.amount
-    const delta = (e.noBalanceEffect || e.paidViaCredit || !e.accountId) ? 0 : -amt
-    confirmEvent(e.id, yesterdayStr, e.accountId, delta, false, true)
+    confirmEvent(e.id, yesterdayStr, e.accountId, -amt, false, true)
   })
 
   const getCCValue = (id) => {
@@ -196,31 +174,6 @@ export default function Dashboard() {
     return s + val
   }, 0)
 
-  // ── Mizrachi CC widget (charge day 2, ask on day 1) ────────────────────
-  const MZ_CC_ID = 'e_cc4'
-  const MZ_CHARGE_DAY = 2
-  const mzExpense       = expenses.find(e => e.id === MZ_CC_ID)
-  const mzSaved         = mzExpense?.monthlyAmounts?.[thisMonthKey] != null
-  const showMZWidget    = !mzSaved
-  const mzChargeDate    = new Date(today.getFullYear(), today.getMonth(), MZ_CHARGE_DAY)
-  const mzChargeDateStr = mzChargeDate.toISOString().split('T')[0]
-  const mzPaid          = mzExpense && isConfirmed(MZ_CC_ID, mzChargeDateStr)
-  const getMZValue      = () => {
-    if (ccDraft[MZ_CC_ID] !== undefined) return ccDraft[MZ_CC_ID]
-    const stored = mzExpense?.monthlyAmounts?.[thisMonthKey]
-    return stored != null ? String(stored) : ''
-  }
-  const saveMZAmount = () => {
-    const draft = ccDraft[MZ_CC_ID]
-    const stored = mzExpense?.monthlyAmounts?.[thisMonthKey]
-    const parsed = draft !== undefined ? parseInt(draft, 10) : null
-    const final_ = (parsed != null && !isNaN(parsed) && parsed >= 0) ? parsed
-                 : stored != null ? stored
-                 : (mzExpense?.amount || 0)
-    updateExpenseMonthlyAmount(MZ_CC_ID, thisMonthKey, final_)
-    setCCDraft(d => { const n = { ...d }; delete n[MZ_CC_ID]; return n })
-  }
-
   // ── Discount transfer reminder ─────────────────────────────────────────
   const DISCOUNT_IDS    = ['ba9', 'ba10']
   const TRANSFER_DAY    = 1
@@ -234,8 +187,7 @@ export default function Dashboard() {
     return d
   })()
   const discountMonthKey  = `${nextFirst.getFullYear()}-${String(nextFirst.getMonth() + 1).padStart(2, '0')}`
-  const discountDoneMap   = Object.fromEntries(DISCOUNT_IDS.map(id => [id, (discountTransferDone || []).some(e => typeof e !== 'string' && e.monthKey === discountMonthKey && e.discountAccountId === id)]))
-  const discountDone      = DISCOUNT_IDS.every(id => discountDoneMap[id])
+  const discountDone      = (discountTransferDone || []).includes(discountMonthKey)
   const daysUntilTransfer = Math.ceil((nextFirst - today) / 86400000)
 
   // Events from today until the 20th — to compute each account's free balance
@@ -257,60 +209,42 @@ export default function Dashboard() {
   const FRIEND_LOAN_IDS = ['l17', 'l18']
   const isFriendLoan  = (e) => e.paidByFriend || FRIEND_LOAN_IDS.some(id => e.id === id || e.id.startsWith(id + '_'))
 
-  // Delta to apply to account when confirming (0 for noBalanceEffect / paidViaCredit)
+  // Delta to apply to account when confirming (0 for noBalanceEffect / paidViaCredit / paidByFriend)
   const calcDelta = (e) => {
-    if (e.noBalanceEffect || e.paidViaCredit || !e.accountId) return 0
-    const isIncome = e.color === 'green' || e.type === 'rental' || e.type === 'future'
-    if (e.currency === 'USD') return isIncome ? (e.usdAmount || 0) : -(e.usdAmount || 0)
-    if (e.effectiveAmount != null) return isIncome ? e.effectiveAmount : -e.effectiveAmount
+    if (e.noBalanceEffect || e.paidViaCredit || isFriendLoan(e) || !e.accountId) return 0
+    if (e.currency === 'USD') return e.amount >= 0 ? (e.usdAmount || 0) : -(e.usdAmount || 0)
+    if (e.effectiveAmount != null) return e.amount >= 0 ? e.effectiveAmount : -e.effectiveAmount
     return e.amount
   }
 
   // Effective ILS delta for running balance forecast
   const ilsDelta = (e) => {
-    if (e.currency === 'USD' || e.noBalanceEffect || e.paidViaCredit || !e.accountId) return 0
-    const isIncome = e.color === 'green' || e.type === 'rental' || e.type === 'future'
-    if (e.effectiveAmount != null) return isIncome ? e.effectiveAmount : -e.effectiveAmount
+    if (e.currency === 'USD' || e.noBalanceEffect || e.paidViaCredit || isFriendLoan(e)) return 0
+    if (e.effectiveAmount != null) return e.amount >= 0 ? e.effectiveAmount : -e.effectiveAmount
     return e.amount
   }
   const usdDelta = (e) => {
-    if (e.currency !== 'USD' || e.noBalanceEffect || e.paidViaCredit || !e.accountId) return 0
-    const isIncome = e.color === 'green' || e.type === 'rental' || e.type === 'future'
-    return isIncome ? (e.usdAmount || 0) : -(e.usdAmount || 0)
-  }
-
-  // Dismissed events helper
-  const isDismissed = (id, date) => {
-    const baseId = id.replace(/_m\d+$/, '')
-    const month = date?.slice(0, 7)
-    return (dismissedEvents || []).some(d => {
-      const dBase = (d.id || '').replace(/_m\d+$/, '')
-      if (dBase !== baseId && d.id !== baseId) return false
-      return d.date === date || d.date?.slice(0, 7) === month
-    })
+    if (e.currency !== 'USD' || e.noBalanceEffect) return 0
+    return e.amount >= 0 ? (e.usdAmount || 0) : -(e.usdAmount || 0)
   }
 
   // Compute danger date — first ILS balance goes negative (always 90-day look-ahead)
   // CC expenses excluded — they're estimates confirmed separately on charge day
-  const CC_IDS_DANGER = ['e_cc1', 'e_cc2', 'e_cc3', 'e_cc4']
+  const CC_IDS_DANGER = ['e_cc1', 'e_cc2', 'e_cc3']
   const danger90Raw = getUpcomingEvents(loans.filter(l => !l.paidByFriend), expenses.filter(e => !CC_IDS_DANGER.includes(e.id)), rentalIncome, futureIncome, 90, usdRate, 0)
   let _runILS = ilsLiquidity
   let _runUSD = usdLiquidity
   let ilsDangerEvent = null
   let usdDangerEvent = null
   for (const e of danger90Raw) {
-    const _d = new Date(e.date); _d.setHours(0,0,0,0)
-    const _ds = _d.toISOString().split('T')[0]
-    if (!isConfirmed(e.id, _ds) && !isDismissed(e.id, _ds)) {
-      _runUSD += usdDelta(e)
-      _runILS += ilsDelta(e)
-    }
+    _runUSD += usdDelta(e)
+    _runILS += ilsDelta(e)
     if (!usdDangerEvent && _runUSD < 0) usdDangerEvent = { ...e, balanceAfterUSD: _runUSD }
     if (!ilsDangerEvent && _runILS < 0) ilsDangerEvent = { ...e, balanceAfter: _runILS }
   }
 
-  // Fetch 30 days back to catch all unconfirmed rollover events
-  const allRaw = getUpcomingEvents(loans, expenses, rentalIncome, futureIncome, rangeDays, usdRate, 30)
+  // Fetch 5 days back to catch unconfirmed income rollover events
+  const allRaw = getUpcomingEvents(loans, expenses, rentalIncome, futureIncome, rangeDays, usdRate, 5)
 
   // Per-account running balances (native currency)
   const runningAccBal = {}
@@ -324,20 +258,15 @@ export default function Dashboard() {
   const allEvents = allRaw.map(e => {
     const d = new Date(e.date); d.setHours(0,0,0,0)
     const dateStr = d.toISOString().split('T')[0]
-    const alreadyConfirmed = isConfirmed(e.id, dateStr)
-    const dismissed = isDismissed(e.id, dateStr)
-    // Skip confirmed and dismissed events' deltas — they should not affect running balance
-    if (!alreadyConfirmed && !dismissed) {
-      runningUSD += usdDelta(e)
-      runningILS += ilsDelta(e)
-    }
+    runningUSD += usdDelta(e)
+    if (!isFriendLoan(e)) runningILS += ilsDelta(e)
     const accountName = e.accountId ? accountMap[e.accountId] : null
-    const creditAccountName = e.creditAccountId ? accountMap[e.creditAccountId] : null
 
-    // Per-account sufficiency check (only for outgoing charges, skip confirmed/dismissed)
+    // Per-account sufficiency check (only for outgoing charges, skip confirmed)
     let accountStatus = null
     const evDelta = calcDelta(e)
-    if (!alreadyConfirmed && !dismissed && e.accountId && evDelta !== 0) {
+    const alreadyConfirmed = isConfirmed(e.id, dateStr)
+    if (!alreadyConfirmed && e.accountId && evDelta !== 0) {
       const bal = runningAccBal[e.accountId] ?? 0
       const balAfter = bal + evDelta
       if (evDelta < 0) {
@@ -348,47 +277,29 @@ export default function Dashboard() {
       runningAccBal[e.accountId] = balAfter
     }
 
-    return { ...e, balanceAfter: runningILS, balanceAfterUSD: runningUSD, dateStr, accountName, creditAccountName, accountStatus }
+    return { ...e, balanceAfter: runningILS, balanceAfterUSD: runningUSD, dateStr, accountName, accountStatus }
   })
 
-  // Rolled-over: past unconfirmed events (income AND expenses) stay visible until confirmed
+  // Rolled-over: past unconfirmed INCOME events only (amount > 0 = money coming in)
   const rolledOver = allEvents
-    .filter(e => e.dateStr < todayStr && !isConfirmed(e.id, e.dateStr))
+    .filter(e => e.dateStr < todayStr && !isConfirmed(e.id, e.dateStr) && e.amount > 0)
     .map(e => ({ ...e, date: today, dateStr: todayStr, rolledOver: true, originalDateStr: e.dateStr, originalDate: e.date, id: e.id + '_ro' }))
 
-  const isEventDismissed = (e) => {
-    const origId = e.rolledOver ? e.id.replace(/_ro$/, '') : e.id
-    const origDate = e.rolledOver ? e.originalDateStr : e.dateStr || todayStr
-    return isDismissed(origId, origDate)
-  }
+  const isDismissed = (id, date) => (dismissedEvents || []).some(d => d.id === id && d.date === date)
+
   const todayEvents = [
     ...rolledOver,
     ...allEvents.filter(e => e.dateStr === todayStr && !isConfirmed(e.id, todayStr)),
-  ].filter(e => !isEventDismissed(e))
-  const isConfirmedRo = (id, origDateStr) => confirmedEvents.some(e => e.id === id && e.date === origDateStr && e._ro && e.confirmedAt === todayStr)
+  ].filter(e => !isDismissed(e.id, todayStr))
+  const isConfirmedRo = (id, origDateStr) => confirmedEvents.some(e => e.id === id && e.date === origDateStr && e._ro)
   const confirmedRolledOver = allEvents
-    .filter(e => e.dateStr < todayStr && isConfirmedRo(e.id, e.dateStr))
+    .filter(e => e.dateStr < todayStr && e.amount > 0 && isConfirmedRo(e.id, e.dateStr))
     .map(e => ({ ...e, date: today, dateStr: todayStr, _confirmedRo: true, originalDateStr: e.dateStr }))
   const confirmedToday = [
     ...allEvents.filter(e => e.dateStr === todayStr && isConfirmed(e.id, todayStr)),
     ...confirmedRolledOver,
-  ].filter(e => !isEventDismissed(e))
+  ].filter(e => !isDismissed(e.id, todayStr))
   const soonEvents = allEvents.filter(e => e.dateStr > todayStr)
-  const tomorrowEvents = allEvents.filter(e => e.dateStr === tomorrowStr)
-  const tomorrowReminders = (reminders || []).filter(r => {
-    if (r.type === 'monthly') {
-      return r.day === tomorrow.getDate() && !(r.doneMonths || []).includes(tomorrowMonthKey)
-    }
-    return !r.done && r.date === tomorrowStr
-  })
-  const tomorrowTasks = (tasks || []).filter(t => {
-    if (t.done) return false
-    if (t.freq === 'monthly') {
-      if ((t.doneMonths || []).includes(tomorrowMonthKey)) return false
-      return true
-    }
-    return t.date && t.date <= tomorrowStr
-  })
 
   const isIncome  = e => e.type === 'rental' || e.type === 'future'
   const isExpense = e => e.type === 'expense' || e.type === 'loan'
@@ -422,27 +333,11 @@ export default function Dashboard() {
   return (
     <div className="page-content">
       {/* Header */}
-      <div style={{background: 'linear-gradient(135deg, #0f0c29 0%, #1a1a4e 40%, #1e3a5f 100%)'}} className="px-4 pt-5 pb-7 relative overflow-hidden">
-        {/* subtle shimmer lines */}
-        <div className="absolute inset-0 pointer-events-none" style={{background: 'repeating-linear-gradient(45deg, transparent, transparent 60px, rgba(255,215,0,0.03) 60px, rgba(255,215,0,0.03) 61px)'}} />
-
-        <div className="flex items-center justify-between mb-6 relative">
+      <div className="bg-blue-600 px-4 pt-4 pb-6">
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <p className="text-xs font-semibold tracking-widest uppercase mb-1" style={{color: '#c9a84c', letterSpacing: '0.18em'}}>{activeUser === 'yael' ? 'ברוכה הבאה' : 'ברוך הבא'}</p>
-            <h1
-              className="text-2xl font-bold tracking-tight select-none"
-              style={{color: '#f5e6c0', textShadow: '0 0 24px rgba(201,168,76,0.35)'}}
-              onContextMenu={e => { e.preventDefault(); setActiveUser(activeUser === 'yael' ? 'tomer' : 'yael') }}
-              onTouchStart={e => {
-                const t = setTimeout(() => setActiveUser(activeUser === 'yael' ? 'tomer' : 'yael'), 600)
-                e.currentTarget._lp = t
-              }}
-              onTouchEnd={e => clearTimeout(e.currentTarget._lp)}
-              onTouchMove={e => clearTimeout(e.currentTarget._lp)}
-            >
-              {activeUser === 'yael' ? 'היי יעל ✦' : 'שלום, תומר ✦'}
-            </h1>
-            <p className="text-sm mt-0.5" style={{color: 'rgba(201,168,76,0.65)'}}>
+            <h1 className="text-white text-xl font-bold">שלום תומר 👋</h1>
+            <p className="text-blue-200 text-sm">
               {today.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}
             </p>
           </div>
@@ -468,19 +363,19 @@ export default function Dashboard() {
         </div>
 
         {/* key metric */}
-        <div className="rounded-2xl p-3 flex items-center justify-between relative" style={{background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(201,168,76,0.2)', backdropFilter: 'blur(8px)'}}>
+        <div className="bg-white bg-opacity-20 rounded-2xl p-3 flex items-center justify-between">
           <button onClick={() => setShowAccountsModal('ILS')} className="text-right active:opacity-70 transition-opacity">
-            <p className="text-xs font-medium" style={{color: 'rgba(201,168,76,0.8)'}}>💳 נזילות נוכחית ›</p>
+            <p className="text-xs text-blue-200 font-medium">💳 נזילות נוכחית ›</p>
             <p className="text-lg font-bold text-white">{formatILS(ilsLiquidity)}</p>
-            <p className="text-xs" style={{color: 'rgba(201,168,76,0.5)'}}>חשבונות ₪</p>
+            <p className="text-xs text-blue-300">חשבונות ₪</p>
           </button>
-          <div className="w-px h-14 mx-2" style={{background: 'rgba(201,168,76,0.25)'}} />
+          <div className="w-px h-14 bg-white bg-opacity-30 mx-2" />
           <button onClick={() => setShowAccountsModal('USD')} className="text-left active:opacity-70 transition-opacity">
-            <p className="text-xs font-medium" style={{color: 'rgba(201,168,76,0.8)'}}>💵 דולרים ›</p>
+            <p className="text-xs text-blue-200 font-medium">💵 דולרים ›</p>
             <p className="text-lg font-bold text-white">${new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(usdLiquidity)}</p>
-            <p className="text-xs" style={{color: 'rgba(201,168,76,0.5)'}}>{formatILS(usdLiquidity * usdRate)}</p>
+            <p className="text-xs text-blue-300">{formatILS(usdLiquidity * usdRate)}</p>
             <button onClick={e => { e.stopPropagation(); setShowNetWorthModal(true) }} className="text-left active:opacity-70 mt-1">
-              <p className="text-xs" style={{color: 'rgba(201,168,76,0.8)'}}>📊 הון נטו (ללא משכנתא) ›</p>
+              <p className="text-xs text-blue-200">📊 הון נטו (ללא משכנתא) ›</p>
               <p className={`text-base font-bold ${netWorthNoMortgage >= 0 ? 'text-green-300' : 'text-red-300'}`}>{formatILS(netWorthNoMortgage)}</p>
               <p className={`text-xs ${netWorth >= 0 ? 'text-green-400' : 'text-red-400'} opacity-70`}>כולל משכנתא: {formatILS(netWorth)}</p>
             </button>
@@ -536,12 +431,12 @@ export default function Dashboard() {
 
         {/* Discount transfer reminder — 2 days before the 1st */}
         {(daysUntilTransfer <= REMINDER_DAYS || discountDone) && <div className={`card overflow-hidden ${!discountDone ? 'border border-blue-200' : ''}`}>
-          <div className={`px-4 py-2.5 ${discountDone ? 'bg-green-50' : daysUntilTransfer <= 3 ? 'bg-red-50' : daysUntilTransfer <= 7 ? 'bg-orange-50' : 'bg-blue-50'}`}>
+          <div className={`flex items-center justify-between px-4 py-2.5 ${discountDone ? 'bg-green-50' : daysUntilTransfer <= 3 ? 'bg-red-50' : daysUntilTransfer <= 7 ? 'bg-orange-50' : 'bg-blue-50'}`}>
             <div className="flex items-center gap-2">
               <span className="text-base">{discountDone ? '✅' : '🏦'}</span>
               <div>
                 <p className={`text-xs font-bold ${discountDone ? 'text-green-700' : daysUntilTransfer <= 3 ? 'text-red-600' : daysUntilTransfer <= 7 ? 'text-orange-600' : 'text-blue-700'}`}>
-                  העברה חודשית לדיסקונט — {formatILS(TRANSFER_AMOUNT * 2)}
+                  העברה חודשית לדיסקונט — ₪{(TRANSFER_AMOUNT * 2).toLocaleString()}
                 </p>
                 <p className={`text-xs ${discountDone ? 'text-green-500' : 'text-gray-400'}`}>
                   {discountDone
@@ -553,53 +448,47 @@ export default function Dashboard() {
                 </p>
               </div>
             </div>
+            {discountDone
+              ? <button onClick={() => undoDiscountTransfer(discountMonthKey)} className="text-xs text-gray-400 border border-gray-200 px-2 py-1 rounded-lg">↩ בטל</button>
+              : <button onClick={() => confirmDiscountTransfer(discountMonthKey)} className="text-xs bg-blue-600 text-white font-semibold px-3 py-1.5 rounded-lg active:opacity-70">✓ בוצע</button>
+            }
           </div>
-          <div className="px-4 py-3 space-y-2">
-            {DISCOUNT_IDS.map(discId => {
-              const done = discountDoneMap[discId]
-              const acc = accounts.find(a => a.id === discId)
-              const expanded = discountExpanded === discId
-              return (
-                <div key={discId} className={`rounded-xl overflow-hidden border ${done ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
-                  <div
-                    className="flex items-center justify-between px-3 py-2.5 cursor-pointer"
-                    onClick={() => { if (!done) { setDiscountExpanded(expanded ? null : discId); setDiscountSourceId('') } }}
-                  >
-                    <div>
-                      <p className={`text-sm font-semibold ${done ? 'text-green-700' : 'text-gray-700'}`}>{acc?.name || discId}</p>
-                      <p className="text-xs text-gray-400">{formatILS(TRANSFER_AMOUNT)}</p>
-                    </div>
-                    {done
-                      ? <button onClick={ev => { ev.stopPropagation(); undoDiscountTransfer(discountMonthKey, discId) }} className="text-xs text-gray-400 border border-gray-200 px-2 py-1 rounded-lg bg-white">↩ בטל</button>
-                      : <span className="text-xs text-gray-400">{expanded ? '▲' : 'לחץ לאישור ▼'}</span>
-                    }
-                  </div>
-                  {expanded && !done && (
-                    <div className="px-3 pb-3 space-y-2 border-t border-gray-200">
-                      <p className="text-xs text-gray-500 mt-2">מאיזה חשבון להעביר?</p>
-                      <select
-                        value={discountSourceId}
-                        onChange={ev => setDiscountSourceId(ev.target.value)}
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:border-blue-400"
-                      >
-                        <option value="">בחר חשבון מקור</option>
-                        {discountSourceAccounts.map(a => (
-                          <option key={a.id} value={a.id}>{a.name} — {formatILS(Math.round(a.freeBalance))} פנוי</option>
-                        ))}
-                      </select>
-                      <button
-                        disabled={!discountSourceId}
-                        onClick={() => { confirmDiscountTransfer(discountMonthKey, discountSourceId, discId, TRANSFER_AMOUNT); setDiscountExpanded(null); setDiscountSourceId('') }}
-                        className={`w-full py-2 rounded-xl text-sm font-semibold transition-colors ${discountSourceId ? 'bg-blue-600 text-white active:opacity-70' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
-                      >
-                        ✓ אשר העברה — חייב {formatILS(TRANSFER_AMOUNT)}
-                      </button>
-                    </div>
-                  )}
+          {!discountDone && (
+            <div className="px-4 py-3 space-y-2">
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-gray-50 rounded-xl p-2 text-center">
+                  <p className="text-gray-400">דיסקונט תומר</p>
+                  <p className="font-bold text-gray-700">{formatILS(TRANSFER_AMOUNT)}</p>
                 </div>
-              )
-            })}
-          </div>
+                <div className="bg-gray-50 rounded-xl p-2 text-center">
+                  <p className="text-gray-400">דיסקונט יעל</p>
+                  <p className="font-bold text-gray-700">{formatILS(TRANSFER_AMOUNT)}</p>
+                </div>
+              </div>
+              {discountSourceAccounts.length > 0 && (
+                <div>
+                  <p className="text-xs text-gray-400 mb-1.5">💡 מומלץ להעביר מ:</p>
+                  {discountSourceAccounts.slice(0, 3).map((a, i) => (
+                    <div key={a.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                      <div className="flex items-center gap-2">
+                        {i === 0 && <span className="text-xs bg-green-100 text-green-700 font-bold px-1.5 rounded">מומלץ</span>}
+                        <span className="text-xs text-gray-700 font-medium">{a.name}</span>
+                      </div>
+                      <div className="text-left">
+                        <span className={`text-xs font-bold ${a.freeBalance >= TRANSFER_AMOUNT * 2 ? 'text-green-600' : a.freeBalance >= TRANSFER_AMOUNT ? 'text-orange-500' : 'text-red-500'}`}>
+                          {formatILS(Math.round(a.freeBalance))} פנוי
+                        </span>
+                        {a.charges > 0 && <p className="text-xs text-gray-300">אחרי חיובים: {formatILS(Math.round(a.charges))}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {discountSourceAccounts.length === 0 && (
+                <p className="text-xs text-red-400 text-center py-1">⚠️ אין חשבון עם יתרה פנויה מספיקה</p>
+              )}
+            </div>
+          )}
         </div>}
 
         {/* Credit card monthly amounts widget — visible only up to charge day */}
@@ -681,57 +570,6 @@ export default function Dashboard() {
           )
         })()}
 
-        {/* Mizrachi CC widget — visible on day 1-2 */}
-        {mzExpense && showMZWidget && (() => {
-          if (mzSaved && !ccEditing) {
-            return (
-              <div className="card overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-2.5 bg-green-50">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">💳</span>
-                    <div>
-                      <p className="text-xs font-bold text-green-700">✓ כרטיס מזרחי — עודכן</p>
-                      <p className="text-xs text-green-500">{formatILS(mzExpense.monthlyAmounts?.[thisMonthKey] ?? mzExpense.amount)}</p>
-                    </div>
-                  </div>
-                  <button onClick={() => setCCEditing(true)} className="text-xs text-gray-400 border border-gray-200 bg-white px-2 py-1 rounded-lg active:opacity-70">✏️ ערוך</button>
-                </div>
-              </div>
-            )
-          }
-          const val = getMZValue()
-          return (
-            <div className="card overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-2.5 bg-orange-50">
-                <div className="flex items-center gap-2">
-                  <span className="text-base">💳</span>
-                  <p className="text-xs font-bold text-orange-700">כרטיס מזרחי — כמה יורד ב-2 לחודש?</p>
-                </div>
-              </div>
-              <div className="flex items-center justify-between px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium text-gray-800">כרטיס מזרחי</p>
-                  <p className="text-xs text-gray-400">ברירת מחדל: {formatILS(mzExpense.amount)}</p>
-                </div>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  value={val}
-                  placeholder={String(mzExpense.amount)}
-                  onChange={ev => setCCDraft(d => ({ ...d, [MZ_CC_ID]: ev.target.value }))}
-                  className="w-24 text-left border border-gray-200 rounded-lg px-2 py-1 text-sm font-bold text-gray-700 focus:outline-none focus:border-orange-400"
-                  dir="ltr"
-                />
-              </div>
-              <div className="px-4 py-3 border-t border-gray-100 flex justify-end bg-gray-50">
-                <button onClick={saveMZAmount} className="bg-orange-600 text-white text-sm font-bold px-4 py-2 rounded-xl active:opacity-70 active:scale-95 transition-all">
-                  ✓ אשר סכום
-                </button>
-              </div>
-            </div>
-          )
-        })()}
-
         {/* Friend loan reminders */}
         {loans.filter(l => l.paidByFriend).map(loan => {
           const nextCharge = (() => {
@@ -745,8 +583,7 @@ export default function Dashboard() {
           const rec       = (friendReminders || []).find(r => r.loanId === loan.id && r.monthKey === monthKey)
           const reminderSent  = rec?.reminderSent  || false
           const moneyReceived = rec?.moneyReceived || false
-          const receivedToday = moneyReceived && rec?.moneyReceivedDate === todayStr
-          const showCard  = (daysLeft <= (loan.reminderDaysBefore ?? 2) && !moneyReceived) || receivedToday
+          const showCard  = (daysLeft <= (loan.reminderDaysBefore ?? 2) && !moneyReceived) || moneyReceived
           if (!showCard) return null
 
           const extras    = (loan.extras || [])
@@ -754,47 +591,40 @@ export default function Dashboard() {
           const totalAmount = loan.monthlyPayment + extrasTotal
 
           return (
-            <div key={loan.id} className={`card overflow-hidden border-2 ${moneyReceived ? 'border-green-300' : daysLeft === 0 ? 'border-red-300' : 'border-orange-300'}`}>
-              {/* Header */}
-              <div className={`px-4 py-3 ${moneyReceived ? 'bg-green-50' : daysLeft === 0 ? 'bg-red-50' : 'bg-orange-50'}`}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className={`text-xs font-bold ${moneyReceived ? 'text-green-700' : daysLeft === 0 ? 'text-red-600' : 'text-orange-600'}`}>
-                      {moneyReceived ? '✅ הכסף התקבל' : `📲 שלח לאליעזר`}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {moneyReceived
-                        ? loan.name
-                        : daysLeft === 0
-                          ? `⚡ היום! · ${nextCharge.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })}`
-                          : `עוד ${daysLeft} ימים · ${nextCharge.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })}`
-                      }
-                    </p>
-                  </div>
-                  {moneyReceived
-                    ? <button onClick={() => undoFriendMoneyReceived(loan.id, monthKey)} className="text-xs text-gray-400 border border-gray-200 px-2 py-1 rounded-lg">↩</button>
-                    : reminderSent
-                      ? <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => undoFriendReminderSent(loan.id, monthKey)}
-                            className="text-xs text-gray-400 border border-gray-200 px-2 py-1.5 rounded-lg"
-                          >↩</button>
-                          <button
-                            onClick={() => setFriendMoneyReceived(loan.id, monthKey, totalAmount, loan.accountId)}
-                            className="text-sm bg-green-600 text-white font-bold px-4 py-2 rounded-xl active:scale-95 transition-transform"
-                          >
-                            ✓ התקבל
-                          </button>
-                        </div>
-                      : <button
-                          onClick={() => setFriendReminderSent(loan.id, monthKey)}
-                          className="text-sm font-bold px-4 py-2 rounded-xl active:scale-95 transition-transform text-white"
-                          style={{background: 'linear-gradient(135deg, #f97316, #ea580c)'}}
-                        >
-                          ✉️ שלחתי
-                        </button>
-                  }
+            <div key={loan.id} className={`card overflow-hidden border ${moneyReceived ? 'border-green-200' : daysLeft === 0 ? 'border-red-200' : 'border-orange-200'}`}>
+              <div className={`flex items-center justify-between px-4 py-2.5 ${moneyReceived ? 'bg-green-50' : daysLeft === 0 ? 'bg-red-50' : 'bg-orange-50'}`}>
+                <div>
+                  <p className={`text-xs font-bold ${moneyReceived ? 'text-green-700' : daysLeft === 0 ? 'text-red-600' : 'text-orange-600'}`}>
+                    💬 תזכורת ל{loan.friendName} — {loan.name}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {moneyReceived
+                      ? '✓ הכסף התקבל'
+                      : daysLeft === 0
+                        ? `⚡ היום! · ${nextCharge.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })}`
+                        : `עוד ${daysLeft} ימים · ${nextCharge.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })}`
+                    }
+                  </p>
                 </div>
+                {moneyReceived
+                  ? <button onClick={() => undoFriendMoneyReceived(loan.id, monthKey)} className="text-xs text-gray-400 border border-gray-200 px-2 py-1 rounded-lg">↩</button>
+                  : <div className="flex gap-1.5">
+                      <button
+                        onClick={() => reminderSent ? undoFriendReminderSent(loan.id, monthKey) : setFriendReminderSent(loan.id, monthKey)}
+                        className={`text-xs px-2.5 py-1.5 rounded-lg font-medium border transition-colors ${reminderSent ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-white text-gray-500 border-gray-200'}`}
+                      >
+                        {reminderSent ? '✉️ נשלח' : '✉️ שלח'}
+                      </button>
+                      {!reminderSent && (
+                        <button
+                          onClick={() => setFriendMoneyReceived(loan.id, monthKey, totalAmount, loan.accountId)}
+                          className="text-xs bg-green-600 text-white font-semibold px-2.5 py-1.5 rounded-lg"
+                        >
+                          ✓ התקבל
+                        </button>
+                      )}
+                    </div>
+                }
               </div>
               {/* Amount breakdown */}
               <div className="px-4 py-2.5 border-t border-gray-100">
@@ -825,16 +655,7 @@ export default function Dashboard() {
             confirmEvent(e.id, todayStr, e.accountId, calcDelta(e), e.currency === 'USD', false)
           })
           return (
-          <Section title="היום" icon="⚡" subtitle={today.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })} toolbar={<div className="flex gap-2"><button onClick={async () => {
-                try {
-                  const cloud = await loadState()
-                  if (cloud) {
-                    const dataOnly = Object.fromEntries(Object.entries(cloud).filter(([, v]) => typeof v !== 'function'))
-                    useStore.setState(dataOnly)
-                    alert('סונכרן בהצלחה')
-                  } else { alert('לא הצלחתי לטעון מהענן') }
-                } catch { alert('שגיאה בסנכרון') }
-              }} className="text-xs text-green-400 font-normal active:opacity-60">רענן</button><button onClick={() => setShowDataModal(true)} className="text-xs text-blue-300 font-normal active:opacity-60">נתונים</button></div>}>
+          <Section title="היום" icon="⚡" subtitle={today.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })} toolbar={<button onClick={() => setShowDataModal(true)} className="text-xs text-blue-300 font-normal active:opacity-60">נתונים</button>}>
             {/* CC confirm-all banner — charge day */}
             {ccAllToday && (
               <div className="flex items-center justify-between px-4 py-3 bg-indigo-50 border-b border-indigo-100">
@@ -897,41 +718,6 @@ export default function Dashboard() {
                 </div>
               </div>
             ))}
-            {/* Financial tasks */}
-            {(() => {
-              const activeTasks = (tasks || []).filter(t => {
-                if (t.done) return false
-                if (t.freq === 'monthly') {
-                  if ((t.doneMonths || []).includes(thisMonthKey)) return false
-                  return true // always show until marked done for this month
-                }
-                // one-time: show if date <= today, stays forever until done
-                return t.date && t.date <= todayStr
-              })
-              return activeTasks.map(t => (
-                <div key={t.id} className="flex items-center justify-between px-4 py-3 border-b border-gray-50 bg-purple-50">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">📋</span>
-                    <div>
-                      <p className="text-sm font-medium text-purple-800">{t.name}</p>
-                      <p className="text-xs text-purple-400">
-                        {t.freq === 'monthly' ? `חוזר כל חודש · יום ${t.day}` : `חד פעמי · ${t.date}`}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => completeTask(t.id, thisMonthKey)}
-                      className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded-lg font-medium"
-                    >✓ בוצע</button>
-                    <button
-                      onClick={() => deleteTask(t.id)}
-                      className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium"
-                    >✗</button>
-                  </div>
-                </div>
-              ))
-            })()}
             {visibleToday.map(e => (
               <EventRow
                 key={e.id}
@@ -939,14 +725,8 @@ export default function Dashboard() {
                 highlight
                 onEdit={() => handleEditEvent(e)}
                 onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')}
-                onPartialPayment={
-                  e.type === 'future' && !e.isPayment && (e.amount || 0) > 0
-                    ? () => setPartialPayItem({ ...futureIncome.find(f => f.id === e.id.replace(/_ro$/, '').replace(/_m\d+$/, '')), _type: 'future' })
-                  : e.type === 'rental' && !e.noBalanceEffect && (e.amount || 0) > 0
-                    ? () => setPartialPayItem({ ...rentalIncome.find(r => r.id === e.id.replace(/_ro$/, '').replace(/_m\d+$/, '')), _type: 'rental' })
-                  : undefined}
                 onConfirm={() => {
-                  const id      = (e.rolledOver ? e.id.replace('_ro','') : e.id).replace(/_m\d+$/, '')
+                  const id      = e.rolledOver ? e.id.replace('_ro','') : e.id
                   const dateStr = e.rolledOver ? e.originalDateStr : todayStr
                   const delta   = calcDelta(e)
                   confirmEvent(id, dateStr, e.accountId || null, delta, e.currency === 'USD', e.rolledOver, e.destAccountId || null)
@@ -957,11 +737,7 @@ export default function Dashboard() {
                 }}
                 onDelete={() => {
                   if (e.type === 'future') deleteFutureIncome(e.id)
-                  else {
-                    const origId = (e.rolledOver ? e.id.replace(/_ro$/, '') : e.id).replace(/_m\d+$/, '')
-                    const origDate = e.rolledOver ? e.originalDateStr : todayStr
-                    dismissEvent(origId, origDate)
-                  }
+                  else dismissEvent(e.id, todayStr)
                 }}
               />
             ))}
@@ -996,145 +772,67 @@ export default function Dashboard() {
                 onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')}
                 onUnconfirm={() => unconfirmEvent(e.id, e._confirmedRo ? e.originalDateStr : todayStr)}
                 onDelete={() => {
-                  const origDate = e._confirmedRo ? e.originalDateStr : todayStr
-                  unconfirmEvent(e.id, origDate)
+                  unconfirmEvent(e.id, e._confirmedRo ? e.originalDateStr : todayStr)
                   if (e.type === 'future') deleteFutureIncome(e.id)
-                  else dismissEvent(e.id, origDate)
+                  else dismissEvent(e.id, todayStr)
                 }}
               />
             ))}
-            {/* Peek tomorrow button + overlay */}
-            {(
-              <div className="relative">
-                <button
-                  onMouseDown={() => setPeeking(true)}
-                  onMouseUp={() => setPeeking(false)}
-                  onMouseLeave={() => setPeeking(false)}
-                  onTouchStart={() => setPeeking(true)}
-                  onTouchEnd={() => setPeeking(false)}
-                  onTouchCancel={() => setPeeking(false)}
-                  className={`w-full py-2.5 text-xs font-medium transition-colors ${peeking ? 'bg-blue-100 text-blue-700' : 'bg-gray-50 text-gray-400'}`}
-                >
-                  {peeking ? `📅 מחר · ${tomorrow.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })}` : '👀 החזק להצצה למחר'}
-                </button>
-                {peeking && (
-                  <div className="border-t border-blue-200 bg-blue-50 bg-opacity-60">
-                    {tomorrowEvents.length === 0 && tomorrowReminders.length === 0 && tomorrowTasks.length === 0 && (
-                      <p className="text-center text-sm text-gray-400 py-4">אין אירועים מחר</p>
-                    )}
-                    {tomorrowReminders.map(r => (
-                      <div key={r.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-blue-100">
-                        <div className="w-2 h-2 rounded-full flex-shrink-0 bg-yellow-400" />
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">🔔 {r.text}</p>
-                          {r.type === 'monthly' && <p className="text-xs text-gray-400">חוזרת בכל {r.day} לחודש</p>}
-                        </div>
-                      </div>
-                    ))}
-                    {tomorrowTasks.map(t => (
-                      <div key={t.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-blue-100">
-                        <span className="text-base">📋</span>
-                        <div>
-                          <p className="text-sm font-medium text-purple-700">{t.name}</p>
-                          <p className="text-xs text-purple-400">{t.freq === 'monthly' ? `חוזר כל חודש` : `חד פעמי`}</p>
-                        </div>
-                      </div>
-                    ))}
-                    {tomorrowEvents.map(e => {
-                      const c = colorMap[e.color] || colorMap.blue
-                      const amtStr = e.currency === 'USD'
-                        ? `$${Math.abs(e.usdAmount || 0).toLocaleString()}`
-                        : formatILS(Math.abs(e.effectiveAmount ?? e.amount ?? 0))
-                      const sign = (e.color === 'green' || e.type === 'rental' || e.type === 'future') ? '+' : '-'
-                      return (
-                        <div key={e.id} className="flex items-center justify-between px-4 py-2.5 border-b border-blue-100">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${c.dot}`} />
-                            <div>
-                              <p className="text-sm font-medium text-gray-700">{e.name}</p>
-                              {e.accountId && <p className="text-xs text-gray-400">{accountMap[e.accountId] || ''}</p>}
-                            </div>
-                          </div>
-                          <span className={`text-sm font-bold ${c.text}`}>{sign}{amtStr}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
           </Section>
           )
         })()}
 
         {/* Upcoming events */}
-        {soonEvents.length > 0 && (
+        {visibleSoon.length > 0 && (
           <Section
             title={`${RANGE_OPTIONS.find(o => o.days === rangeDays)?.label} הקרובים`}
             icon="📅"
             toolbar={
-              <div className="flex gap-1 items-center rounded-xl p-1" style={{ background: '#f5f3ef' }}>
-                <button
-                  onClick={() => {
-                    const days = RANGE_OPTIONS.map(o => o.days)
-                    const idx = days.indexOf(rangeDays)
-                    setRangeDays(days[(idx + 1) % days.length])
-                  }}
-                  className="px-3 py-1.5 text-xs font-medium rounded-lg transition-all"
-                  style={{ background: 'white', color: '#374151', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
-                >
-                  {RANGE_OPTIONS.find(o => o.days === rangeDays)?.label}
-                </button>
-                <button
-                  onClick={() => {
-                    const opts = ['all', 'income', 'expense']
-                    const idx = opts.indexOf(filterType)
-                    setFilterType(opts[(idx + 1) % opts.length])
-                  }}
-                  className="px-3 py-1.5 text-xs font-medium rounded-lg transition-all"
-                  style={
-                    filterType === 'income' ? { background: 'rgba(34,197,94,0.1)', color: '#16a34a', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' } :
-                    filterType === 'expense' ? { background: 'rgba(239,68,68,0.1)', color: '#dc2626', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' } :
-                    { background: 'transparent', color: '#9ca3af' }
-                  }
-                >
-                  {filterType === 'income' ? '● הכנסות' : filterType === 'expense' ? '● הוצאות' : 'הכל'}
-                </button>
-                <button
-                  onClick={() => {
-                    const opts = ['all', 'ILS', 'USD']
-                    const idx = opts.indexOf(filterCurrency)
-                    setFilterCurrency(opts[(idx + 1) % opts.length])
-                  }}
-                  className="px-3 py-1.5 text-xs font-medium rounded-lg transition-all"
-                  style={
-                    filterCurrency === 'ILS' ? { background: 'rgba(59,130,246,0.1)', color: '#2563eb', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' } :
-                    filterCurrency === 'USD' ? { background: 'rgba(34,197,94,0.1)', color: '#16a34a', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' } :
-                    { background: 'transparent', color: '#9ca3af' }
-                  }
-                >
-                  {filterCurrency === 'ILS' ? '₪ שקל' : filterCurrency === 'USD' ? '$ דולר' : 'הכל'}
-                </button>
+              <div className="flex gap-1 items-center">
+                {RANGE_OPTIONS.map(o => (
+                  <button
+                    key={o.days}
+                    onClick={() => setRangeDays(o.days)}
+                    className={`px-2 py-1 text-xs font-semibold rounded-lg transition-colors
+                      ${rangeDays === o.days ? 'bg-blue-600 text-white' : 'text-gray-400'}`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+                <div className="w-px h-4 bg-gray-200 mx-0.5" />
+                {[
+                  { v: 'all',     label: 'הכל', active: 'bg-gray-700 text-white',  inactive: 'text-gray-400' },
+                  { v: 'income',  label: '💚',   active: 'bg-green-500 text-white', inactive: 'text-gray-400' },
+                  { v: 'expense', label: '🔴',   active: 'bg-red-500 text-white',   inactive: 'text-gray-400' },
+                ].map(o => (
+                  <button
+                    key={o.v}
+                    onClick={() => setFilterType(o.v)}
+                    className={`px-2 py-1 text-xs font-semibold rounded-lg transition-colors
+                      ${filterType === o.v ? o.active : o.inactive}`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+                <div className="w-px h-4 bg-gray-200 mx-0.5" />
+                {[
+                  { v: 'all', label: '🌐', active: 'bg-gray-700 text-white', inactive: 'text-gray-400' },
+                  { v: 'ILS', label: '₪',  active: 'bg-blue-600 text-white', inactive: 'text-gray-400' },
+                  { v: 'USD', label: '$',  active: 'bg-green-600 text-white', inactive: 'text-gray-400' },
+                ].map(o => (
+                  <button
+                    key={o.v}
+                    onClick={() => setFilterCurrency(o.v)}
+                    className={`px-2 py-1 text-xs font-semibold rounded-lg transition-colors
+                      ${filterCurrency === o.v ? o.active : o.inactive}`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
               </div>
             }
           >
-            {visibleSoon.length === 0 && (
-              <p className="text-center text-sm text-gray-400 py-6">אין אירועים בסינון הנוכחי</p>
-            )}
-            {visibleSoon.map(e => (
-            <EventRow
-              key={e.id}
-              event={e}
-              onEdit={() => handleEditEvent(e)}
-              onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')}
-              onPartialPayment={
-                e.type === 'future' && !e.isPayment && (e.amount || 0) > 0
-                  ? () => setPartialPayItem({ ...futureIncome.find(f => f.id === e.id.replace(/_ro$/, '').replace(/_m\d+$/, '')), _type: 'future' })
-                : e.type === 'rental' && !e.noBalanceEffect && (e.amount || 0) > 0
-                  ? () => setPartialPayItem({ ...rentalIncome.find(r => r.id === e.id.replace(/_ro$/, '').replace(/_m\d+$/, '')), _type: 'rental' })
-                : undefined}
-            />
-          ))}
+            {visibleSoon.map(e => <EventRow key={e.id} event={e} onEdit={() => handleEditEvent(e)} onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')} />)}
           </Section>
         )}
 
@@ -1460,7 +1158,6 @@ export default function Dashboard() {
         const futureIncoming = pendingFuture.filter(f => !isOutgoing(f))
         const tabs = [
           { key: 'reminders',      label: '🔔 תזכורות',            count: reminders.length },
-          { key: 'tasks',          label: '📋 משימות',             count: (tasks || []).length },
           { key: 'futureIncoming', label: '💚 הכנסות חד פעמיות',  count: futureIncoming.length },
           { key: 'futureOutgoing', label: '🔴 חיובים חד פעמיים',  count: futureOutgoing.length },
           { key: 'income',         label: '💚 הכנסות קבועות',     count: rentalIncome.length },
@@ -1596,37 +1293,12 @@ export default function Dashboard() {
                       )
                     })
                 )}
-                {dataTab === 'tasks' && (
-                  (tasks || []).length === 0
-                    ? <p className="text-center text-sm text-gray-400 py-8">אין משימות</p>
-                    : (tasks || []).map(t => {
-                      const now = new Date()
-                      const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-                      const isDone = t.freq === 'monthly' ? (t.doneMonths || []).includes(monthKey) : t.done
-                      return (
-                        <div key={t.id} className={`flex items-center gap-3 px-4 py-3 ${isDone ? 'opacity-50' : ''}`}>
-                          <div className="w-2 h-2 rounded-full flex-shrink-0 bg-purple-400" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-800">{t.name}</p>
-                            <p className="text-xs text-gray-400">
-                              {t.freq === 'monthly' ? `חודשי • יום ${t.day}` : `חד פעמי • ${t.date || ''}`}
-                              {isDone ? ' • ✓ בוצע' : ''}
-                            </p>
-                          </div>
-                          <button onClick={() => deleteTask(t.id)}
-                            className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium">מחק</button>
-                        </div>
-                      )
-                    })
-                )}
               </div>
             </div>
           </div>
         )
       })()}
       {incomeEditItem && <IncomeEditModal item={incomeEditItem} onClose={() => setIncomeEditItem(null)} />}
-      {partialPayItem && <PartialPaymentModal item={partialPayItem} onClose={() => setPartialPayItem(null)} />}
-
       {editTarget && <QuickAddModal editTarget={editTarget} onClose={() => setEditTarget(null)} />}
     </div>
   )
@@ -1659,7 +1331,7 @@ function Section({ title, icon, subtitle, toolbar, children }) {
   )
 }
 
-function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowAccounts, onDelete, onEdit, onPartialPayment }) {
+function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowAccounts, onDelete, onEdit }) {
   const days = daysUntil(event.date instanceof Date ? event.date.toISOString() : String(event.date))
   const isIncome = event.amount > 0
   const c = colorMap[event.color] || colorMap.gray
@@ -1688,8 +1360,7 @@ function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowA
             </p>
             <p className="text-xs text-gray-400">
               {dayLabel}{event.note ? ` · ${event.note}` : ''}
-              {event.accountName && <button onClick={e => { e.stopPropagation(); onEdit?.() }} className="text-blue-400 active:opacity-60"> · חיוב: {event.accountName}</button>}
-              {event.creditAccountName && event.type === 'loan' && <button onClick={e => { e.stopPropagation(); onEdit?.() }} className="text-purple-400 active:opacity-60"> · נכנסה: {event.creditAccountName}</button>}
+              {event.accountName && <span className="text-blue-400"> · {event.accountName}</span>}
             </p>
             {event.accountStatus && (
               event.accountStatus.ok ? (
@@ -1715,7 +1386,7 @@ function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowA
         </div>
         <div className="flex items-center gap-2">
           <div className="text-left">
-            <p className={`text-sm font-bold whitespace-nowrap ${isIncome ? 'text-green-600' : 'text-red-500'}`}>
+            <p className={`text-sm font-bold ${isIncome ? 'text-green-600' : 'text-red-500'}`}>
               {isUSD ? usdDisplay : `${isIncome ? '+' : ''}${formatILS(event.amount)}`}
             </p>
             {isUSD && event.usdDeductions && (
@@ -1724,15 +1395,6 @@ function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowA
               </p>
             )}
           </div>
-          {onPartialPayment && (
-            <button
-              onClick={onPartialPayment}
-              className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-blue-400 hover:bg-blue-100 hover:text-blue-600 transition-colors flex-shrink-0 text-sm"
-              title="תשלום חלקי"
-            >
-              ½
-            </button>
-          )}
           {onEdit && (
             <button
               onClick={onEdit}

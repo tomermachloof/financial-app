@@ -19,28 +19,21 @@ function useCloudSync() {
   stateRef.current = state
 
   // Save on every state change (debounced)
-  // But NEVER save if cloud hasn't loaded yet (prevents empty state from overwriting cloud)
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
-    const delay = isFirst.current ? 5000 : 2000
+    const delay = isFirst.current ? 3000 : 2000
     isFirst.current = false
     timerRef.current = setTimeout(() => {
-      const s = stateRef.current
-      // Safety: don't save to cloud if state looks empty/fresh (no lastSaved = never synced)
-      if (!s.lastSaved && (s.confirmedEvents || []).length === 0) {
-        console.log('[CloudSync] skipping save — state looks fresh/empty, waiting for cloud load')
-        return
-      }
-      saveState(s)
+      saveState(stateRef.current)
     }, delay)
     return () => clearTimeout(timerRef.current)
   }, [state])
 
-  // Also save every 2 minutes regardless of changes
+  // Also save every 5 minutes regardless of changes
   useEffect(() => {
     const interval = setInterval(() => {
       saveState(stateRef.current)
-    }, 2 * 60 * 1000)
+    }, 5 * 60 * 1000)
     return () => clearInterval(interval)
   }, [])
 }

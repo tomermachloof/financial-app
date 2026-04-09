@@ -1,5 +1,8 @@
 {
   "name": "financial-notify",
   "version": "1.0.0",
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
 }

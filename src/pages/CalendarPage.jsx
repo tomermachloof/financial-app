@@ -43,9 +43,9 @@ export default function CalendarPage() {
     return acc
   }, {})
 
-  // Separate ILS and USD totals
-  const ilsEvents  = events.filter(e => !e.currency)
-  const usdEvents  = events.filter(e => e.currency === 'USD')
+  // Separate ILS and USD totals — exclude paidByFriend (אליעזר) from totals
+  const ilsEvents  = events.filter(e => !e.currency && !e.paidByFriend)
+  const usdEvents  = events.filter(e => e.currency === 'USD' && !e.paidByFriend)
   const ilsOut     = ilsEvents.filter(e => e.amount < 0).reduce((s, e) => s + e.amount, 0)
   const ilsIn      = ilsEvents.filter(e => e.amount > 0).reduce((s, e) => s + e.amount, 0)
   const usdOut     = usdEvents.filter(e => e.amount < 0).reduce((s, e) => s + (e.usdAmount || 0), 0)
@@ -189,7 +189,7 @@ export default function CalendarPage() {
         const isUSD = detail.endsWith('usd')
         const isIn  = detail.startsWith('in')
         const filtered = events.filter(e =>
-          (e.currency === 'USD') === isUSD && (isIn ? e.amount >= 0 : e.amount < 0)
+          (e.currency === 'USD') === isUSD && (isIn ? e.amount >= 0 : e.amount < 0) && !e.paidByFriend
         )
         const title = `${isIn ? 'נכנס' : 'יוצא'} ${isUSD ? '$' : '₪'} — ${MONTHS_HE[month-1]} ${year}`
         return (

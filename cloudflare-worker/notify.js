@@ -1,10 +1,10 @@
 /**
  * Cloudflare Worker — Daily financial push notification
- * Runs every morning.
+ * Runs every morning (cron: "0 5 * * *" = 8am Israel time)
  *
  * Secrets to set via `wrangler secret put`:
- * VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY, VAPID_SUBJECT
- * SUPABASE_URL, SUPABASE_ANON_KEY
+ *   VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY, VAPID_SUBJECT
+ *   SUPABASE_URL, SUPABASE_ANON_KEY
  */
 
 import webpush from 'web-push'
@@ -15,6 +15,7 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(sendDailyNotification(env))
   },
+
   // For manual testing: GET https://your-worker.workers.dev/test
   async fetch(request, env) {
     if (new URL(request.url).pathname === '/test') {
@@ -44,16 +45,11 @@ async function sendDailyNotification(env) {
 
   // ── 3. Calculate today's items ───────────────────────────────
   const now = new Date()
-  const israelParts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jerusalem',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(now)
-  const part = type => israelParts.find(p => p.type === type)?.value
-  const todayStr = `${part('year')}-${part('month')}-${part('day')}`
-  const todayDay = Number(part('day'))
-  const monthKey = `${part('year')}-${part('month')}`
+  // Israel is UTC+2/UTC+3 — add 2 hours to get approximate local time
+  const ilTime = new Date(now.getTime() + 2 * 60 * 60 * 1000)
+  const todayStr = ilTime.toISOString().split('T')[0]
+  const todayDay = ilTime.getDate()
+  const monthKey = `${ilTime.getFullYear()}-${String(ilTime.getMonth() + 1).padStart(2, '0')}`
 
   const items = []
 
@@ -77,7 +73,7 @@ async function sendDailyNotification(env) {
   const { loans = [] } = state
   for (const loan of loans) {
     if (!loan.chargeDay || !loan.monthlyPayment || loan.paidByFriend) continue
-    const days = daysUntilDay(loan.chargeDay, now, 'Asia/Jerusalem')
+    const days = daysUntilDay(loan.chargeDay, ilTime)
     if (days >= 0 && days <= 7) {
       const prefix = days === 0 ? 'היום' : days === 1 ? 'מחר' : `בעוד ${days} ימים`
       items.push({ label: `${prefix}: תשלום ${loan.name} — ₪${Math.round(loan.monthlyPayment).toLocaleString('he')}`, type: 'loan', today: days === 0 })
@@ -88,7 +84,7 @@ async function sendDailyNotification(env) {
   const { expenses = [] } = state
   for (const exp of expenses) {
     if (!exp.chargeDay || !exp.amount) continue
-    const days = daysUntilDay(exp.chargeDay, now, 'Asia/Jerusalem')
+    const days = daysUntilDay(exp.chargeDay, ilTime)
     if (days >= 0 && days <= 7) {
       const prefix = days === 0 ? 'היום' : days === 1 ? 'מחר' : `בעוד ${days} ימים`
       const amtStr = exp.currency === 'USD' ? `$${exp.amount}` : `₪${Math.round(exp.amount).toLocaleString('he')}`
@@ -99,8 +95,8 @@ async function sendDailyNotification(env) {
   // Future income arriving today
   const { futureIncome = [] } = state
   for (const fi of futureIncome) {
-    if (fi.status === 'pending' && fi.expectedDate === todayStr) {
-      items.push({ label: `הכנסה: ${fi.name} — ₪${Math.round(fi.amount || 0).toLocaleString('he')}`, type: 'income', today: true })
+    if (fi.date === todayStr && !fi.confirmedDate) {
+      items.push({ label: `הכנסה: ${fi.name} — ₪${Math.round(fi.amount).toLocaleString('he')}`, type: 'income', today: true })
     }
   }
 
@@ -141,27 +137,10 @@ async function sendDailyNotification(env) {
 
 // ── helpers ───────────────────────────────────────────────────
 
-function daysUntilDay(dayOfMonth, now, timeZone = 'Asia/Jerusalem') {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(now)
-  const get = type => Number(parts.find(p => p.type === type)?.value)
-  let year = get('year')
-  let month = get('month')
-  const day = get('day')
-  if (day > dayOfMonth) {
-    month += 1
-    if (month === 13) {
-      month = 1
-      year += 1
-    }
-  }
-  const todayUtc = Date.UTC(get('year'), get('month') - 1, day)
-  const targetUtc = Date.UTC(year, month - 1, dayOfMonth)
-  return Math.round((targetUtc - todayUtc) / 86400000)
+function daysUntilDay(dayOfMonth, now) {
+  const target = new Date(now.getFullYear(), now.getMonth(), dayOfMonth, 0, 0, 0)
+  if (target < now) target.setMonth(target.getMonth() + 1)
+  return Math.round((target - now) / (1000 * 60 * 60 * 24))
 }
 
 async function fetchSupabase(env, path) {
