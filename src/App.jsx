@@ -1,5 +1,5 @@
 import { Routes, Route } from 'react-router-dom'
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import BottomNav    from './components/BottomNav'
 import Dashboard    from './pages/Dashboard'
 import CalendarPage from './pages/CalendarPage'
@@ -8,39 +8,10 @@ import IncomePage   from './pages/IncomePage'
 import AccountsPage from './pages/AccountsPage'
 import useLiveRates from './hooks/useLiveRates'
 import QuickAddModal from './components/QuickAddModal'
-import useStore from './store/useStore'
-import { saveState } from './lib/supabase'
-
-function useCloudSync() {
-  const state = useStore()
-  const timerRef = useRef(null)
-  const isFirst = useRef(true)
-  const stateRef = useRef(state)
-  stateRef.current = state
-
-  // Save on every state change (debounced)
-  useEffect(() => {
-    if (timerRef.current) clearTimeout(timerRef.current)
-    const delay = isFirst.current ? 3000 : 2000
-    isFirst.current = false
-    timerRef.current = setTimeout(() => {
-      saveState(stateRef.current)
-    }, delay)
-    return () => clearTimeout(timerRef.current)
-  }, [state])
-
-  // Also save every 5 minutes regardless of changes
-  useEffect(() => {
-    const interval = setInterval(() => {
-      saveState(stateRef.current)
-    }, 5 * 60 * 1000)
-    return () => clearInterval(interval)
-  }, [])
-}
+import SaveToast from './components/SaveToast'
 
 export default function App() {
   useLiveRates()
-  useCloudSync()
   const [showQuickAdd, setShowQuickAdd] = useState(false)
   return (
     <>
@@ -53,6 +24,7 @@ export default function App() {
         <Route path="/accounts" element={<AccountsPage />} />
       </Routes>
       {showQuickAdd && <QuickAddModal onClose={() => setShowQuickAdd(false)} />}
+      <SaveToast />
       <button
         onClick={() => setShowQuickAdd(true)}
         className="fixed bottom-20 left-4 z-40 w-14 h-14 bg-blue-600 rounded-full shadow-xl flex items-center justify-center text-white text-3xl font-light active:scale-90 transition-transform"

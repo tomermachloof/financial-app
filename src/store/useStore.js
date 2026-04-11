@@ -76,11 +76,37 @@ const useStore = create(
 
       // ── Loans ─────────────────────────────────
       updateLoan: (id, updates) =>
-        set(s => ({ loans: s.loans.map(l => l.id === id ? { ...l, ...updates } : l) })),
+        set(s => ({ loans: s.loans.map(l => l.id === id ? { ...l, ...updates, _updatedAt: Date.now() } : l) })),
       addLoan: (loan) =>
-        set(s => ({ loans: [...s.loans, { ...loan, id: 'l' + Date.now() }] })),
-      deleteLoan: (id) =>
-        set(s => ({ loans: s.loans.filter(l => l.id !== id) })),
+        set(s => {
+          const newState = { loans: [...s.loans, { ...loan, id: 'l' + Date.now() }] }
+          if (loan.creditAccountId && loan.totalAmount) {
+            const acc = s.accounts.find(a => a.id === loan.creditAccountId)
+            const isUSD = acc?.currency === 'USD'
+            newState.accounts = s.accounts.map(a =>
+              a.id !== loan.creditAccountId ? a : isUSD
+                ? { ...a, usdBalance: (a.usdBalance || 0) + loan.totalAmount }
+                : { ...a, balance: (a.balance || 0) + loan.totalAmount }
+            )
+          }
+          return newState
+        }),
+      deleteLoan: (id, opts = {}) =>
+        set(s => {
+          const loan = s.loans.find(l => l.id === id)
+          const newState = { loans: s.loans.filter(l => l.id !== id) }
+          // Optional: reverse the original credit applied via addLoan (creditAccountId)
+          if (opts.reverseCredit && loan && loan.creditAccountId && loan.totalAmount) {
+            const acc = s.accounts.find(a => a.id === loan.creditAccountId)
+            const isUSD = acc?.currency === 'USD'
+            newState.accounts = s.accounts.map(a =>
+              a.id !== loan.creditAccountId ? a : isUSD
+                ? { ...a, usdBalance: (a.usdBalance || 0) - loan.totalAmount }
+                : { ...a, balance: (a.balance || 0) - loan.totalAmount }
+            )
+          }
+          return newState
+        }),
 
       // ── Expenses ──────────────────────────────
       updateExpense: (id, updates) =>
@@ -95,7 +121,14 @@ const useStore = create(
       addExpense: (expense) =>
         set(s => ({ expenses: [...s.expenses, { ...expense, id: 'e' + Date.now() }] })),
       deleteExpense: (id) =>
-        set(s => ({ expenses: s.expenses.filter(e => e.id !== id) })),
+        set(s => ({
+          expenses: s.expenses.filter(e => e.id !== id),
+          // Hygiene: drop any lingering confirmedEvents entries pointing at this id
+          confirmedEvents: (s.confirmedEvents || []).filter(e => {
+            const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
+            return bare !== id
+          }),
+        })),
 
       // ── Rental Income ─────────────────────────
       updateRentalIncome: (id, updates) =>
@@ -103,15 +136,33 @@ const useStore = create(
       addRentalIncome: (item) =>
         set(s => ({ rentalIncome: [...s.rentalIncome, { ...item, id: 'r' + Date.now() }] })),
       deleteRentalIncome: (id) =>
-        set(s => ({ rentalIncome: s.rentalIncome.filter(r => r.id !== id) })),
+        set(s => ({
+          rentalIncome: s.rentalIncome.filter(r => r.id !== id),
+          confirmedEvents: (s.confirmedEvents || []).filter(e => {
+            const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
+            return bare !== id
+          }),
+        })),
 
       // ── Future Income ─────────────────────────
       updateFutureIncome: (id, updates) =>
         set(s => ({ futureIncome: s.futureIncome.map(f => f.id === id ? { ...f, ...updates } : f) })),
+      bubbleIncomeToTop: (id) =>
+        set(s => {
+          const item = s.futureIncome.find(f => f.id === id)
+          if (!item) return s
+          return { futureIncome: [item, ...s.futureIncome.filter(f => f.id !== id)] }
+        }),
       addFutureIncome: (item) =>
         set(s => ({ futureIncome: [...s.futureIncome, { ...item, id: 'fi' + Date.now(), status: 'pending' }] })),
       deleteFutureIncome: (id) =>
-        set(s => ({ futureIncome: s.futureIncome.filter(f => f.id !== id) })),
+        set(s => ({
+          futureIncome: s.futureIncome.filter(f => f.id !== id),
+          confirmedEvents: (s.confirmedEvents || []).filter(e => {
+            const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
+            return bare !== id
+          }),
+        })),
       markIncomeReceived: (id, accountId) =>
         set(s => {
           const item = s.futureIncome.find(f => f.id === id)
@@ -119,10 +170,15 @@ const useStore = create(
           const gross = item.amount || 0
           const amt   = item.agentCommission ? Math.round(gross * 0.85) : gross
           const accId = accountId || item.accountId || null
+          // Guard: if Dashboard already confirmed this item, skip the account credit
+          const alreadyConfirmed = (s.confirmedEvents || []).some(e => {
+            const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
+            return bare === id
+          })
           const newFI = s.futureIncome.map(f =>
-            f.id === id ? { ...f, status: 'received', receivedDate: new Date().toISOString(), _receivedAmt: amt, _receivedAccId: accId } : f
+            f.id === id ? { ...f, status: 'received', receivedDate: new Date().toISOString(), _receivedAmt: alreadyConfirmed ? 0 : amt, _receivedAccId: accId } : f
           )
-          if (!accId || !amt) return { futureIncome: newFI }
+          if (alreadyConfirmed || !accId || !amt) return { futureIncome: newFI }
           const accounts = s.accounts.map(a =>
             a.id !== accId ? a : { ...a, balance: (a.balance || 0) + amt }
           )
@@ -141,6 +197,83 @@ const useStore = create(
           )
           return { futureIncome: newFI, accounts }
         }),
+      // Partial payments on futureIncome — push a payment to payments[] and credit account
+      addIncomePayment: (incomeId, amount, accountId) =>
+        set(s => {
+          const item = s.futureIncome.find(f => f.id === incomeId)
+          if (!item || !amount) return s
+          const payment = { id: 'pay' + Date.now(), amount, accountId, date: new Date().toISOString() }
+          const newFI = s.futureIncome.map(f => f.id === incomeId ? { ...f, payments: [...(f.payments || []), payment] } : f)
+          if (!accountId) return { futureIncome: newFI }
+          const isUSD = item.currency === 'USD'
+          const accounts = s.accounts.map(a => {
+            if (a.id !== accountId) return a
+            if (isUSD) return { ...a, usdBalance: (a.usdBalance || 0) + amount }
+            return { ...a, balance: (a.balance || 0) + amount }
+          })
+          return { futureIncome: newFI, accounts }
+        }),
+      removeIncomePayment: (incomeId, paymentId) =>
+        set(s => {
+          const item = s.futureIncome.find(f => f.id === incomeId)
+          if (!item) return s
+          // Guard: don't allow removal if item was already confirmed — would cause double-credit reversal
+          const isConfirmed = (s.confirmedEvents || []).some(e => {
+            const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
+            return bare === incomeId
+          })
+          if (isConfirmed) return s
+          const payment = (item.payments || []).find(p => p.id === paymentId)
+          if (!payment) return s
+          const newFI = s.futureIncome.map(f => f.id === incomeId ? { ...f, payments: (f.payments || []).filter(p => p.id !== paymentId) } : f)
+          if (!payment.accountId) return { futureIncome: newFI }
+          const isUSD = item.currency === 'USD'
+          const accounts = s.accounts.map(a => {
+            if (a.id !== payment.accountId) return a
+            if (isUSD) return { ...a, usdBalance: (a.usdBalance || 0) - payment.amount }
+            return { ...a, balance: (a.balance || 0) - payment.amount }
+          })
+          return { futureIncome: newFI, accounts }
+        }),
+      // Partial payments on rentalIncome — same logic but on rentalIncome[]
+      addRentalPayment: (rentalId, amount, accountId) =>
+        set(s => {
+          const item = s.rentalIncome.find(r => r.id === rentalId)
+          if (!item || !amount) return s
+          const payment = { id: 'pay' + Date.now(), amount, accountId, date: new Date().toISOString() }
+          const newRental = s.rentalIncome.map(r => r.id === rentalId ? { ...r, payments: [...(r.payments || []), payment] } : r)
+          if (!accountId) return { rentalIncome: newRental }
+          const isUSD = item.currency === 'USD'
+          const accounts = s.accounts.map(a => {
+            if (a.id !== accountId) return a
+            if (isUSD) return { ...a, usdBalance: (a.usdBalance || 0) + amount }
+            return { ...a, balance: (a.balance || 0) + amount }
+          })
+          return { rentalIncome: newRental, accounts }
+        }),
+      removeRentalPayment: (rentalId, paymentId) =>
+        set(s => {
+          const item = s.rentalIncome.find(r => r.id === rentalId)
+          if (!item) return s
+          // Guard: don't allow removal if item was already confirmed for current month
+          const isConfirmed = (s.confirmedEvents || []).some(e => {
+            const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
+            return bare === rentalId
+          })
+          if (isConfirmed) return s
+          const payment = (item.payments || []).find(p => p.id === paymentId)
+          if (!payment) return s
+          const newRental = s.rentalIncome.map(r => r.id === rentalId ? { ...r, payments: (r.payments || []).filter(p => p.id !== paymentId) } : r)
+          if (!payment.accountId) return { rentalIncome: newRental }
+          const isUSD = item.currency === 'USD'
+          const accounts = s.accounts.map(a => {
+            if (a.id !== payment.accountId) return a
+            if (isUSD) return { ...a, usdBalance: (a.usdBalance || 0) - payment.amount }
+            return { ...a, balance: (a.balance || 0) - payment.amount }
+          })
+          return { rentalIncome: newRental, accounts }
+        }),
+
       addWorkSession: (incomeId, session) =>
         set(s => ({ futureIncome: s.futureIncome.map(f => {
           if (f.id !== incomeId) return f
@@ -189,7 +322,12 @@ const useStore = create(
       confirmedEvents: [],
       confirmEvent: (id, date, accountId, delta, isUSD, ro, destAccountId) =>
         set(s => {
-          const newConfirmed = [...s.confirmedEvents, { id, date, accountId, delta, isUSD, ...(ro ? { _ro: true } : {}), ...(destAccountId ? { destAccountId } : {}) }]
+          // Stamp the confirmation with the day the user actually clicked confirm,
+          // in the same "dashboard date" format everything else uses. The Dashboard
+          // uses this to hide rolled-over confirmations once the day advances.
+          const _now = new Date(); _now.setHours(0, 0, 0, 0)
+          const confirmedOn = _now.toISOString().split('T')[0]
+          const newConfirmed = [...s.confirmedEvents, { id, date, accountId, delta, isUSD, confirmedOn, ...(ro ? { _ro: true } : {}), ...(destAccountId ? { destAccountId } : {}) }]
           if (!accountId || !delta) return { confirmedEvents: newConfirmed }
           let accounts = s.accounts.map(a => {
             if (a.id !== accountId) return a

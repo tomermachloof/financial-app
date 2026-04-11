@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import useStore from '../store/useStore'
 import MiniCalendar from './MiniCalendar'
 import DayOfMonthPicker from './DayOfMonthPicker'
@@ -6,6 +7,8 @@ import DayOfMonthPicker from './DayOfMonthPicker'
 const ACTIONS = [
   { id: 'reminder',      icon: '🔔', label: 'תזכורת',            desc: 'חד-פעמית או חודשית חוזרת' },
   { id: 'income_expense', icon: '💸', label: 'הכנסה / הוצאה',    desc: 'חד פעמי או חוזר כל חודש' },
+  { id: 'edit_income',   icon: '📗', label: 'עריכת הכנסה',       desc: 'בחר פרויקט מתוך ההכנסות' },
+  { id: 'new_loan',      icon: '➕', label: 'הלוואה חדשה',       desc: 'כולל גרירת לוח סילוקין' },
   { id: 'friend_loan',   icon: '🤝', label: 'הלוואה מחבר',      desc: 'קיבלתי כסף ואחזיר בתאריך' },
   { id: 'update_debt',   icon: '📝', label: 'עדכון חוב',         desc: 'שנה יתרת חוב קיים' },
   { id: 'update_balance',    icon: '🏦', label: 'עדכון יתרה',        desc: 'תקן יתרת חשבון' },
@@ -46,6 +49,8 @@ const Sel = ({ err, children, ...props }) => (
 )
 
 export default function QuickAddModal({ onClose, editTarget }) {
+  const pressStartedOnBackdropRef = useRef(false)
+  const navigate = useNavigate()
   const {
     accounts, debts, loans, futureIncome, investments,
     addDebt, updateDebt,
@@ -77,7 +82,19 @@ export default function QuickAddModal({ onClose, editTarget }) {
   const ilsAccounts = accounts.filter(a => a.currency !== 'USD')
   const todayStr    = new Date().toISOString().split('T')[0]
 
-  const pick = (id) => { setForm({}); setSplits([{ accountId: '', amount: '' }]); setSaved(false); setErrors([]); setStep(id) }
+  const pick = (id) => {
+    if (id === 'new_loan') {
+      onClose()
+      navigate('/loans', { state: { openAdd: true } })
+      return
+    }
+    setForm({}); setSplits([{ accountId: '', amount: '' }]); setSaved(false); setErrors([]); setStep(id)
+  }
+
+  const pickIncomeForEdit = (item) => {
+    onClose()
+    navigate('/income', { state: { openEditId: item.id } })
+  }
 
   const flash = () => { setSaved(true); setTimeout(() => { setSaved(false); if (editTarget) onClose(); else setStep('pick') }, 900) }
 
@@ -288,6 +305,34 @@ export default function QuickAddModal({ onClose, editTarget }) {
 
   const renderForm = () => {
     switch (step) {
+
+      case 'edit_income': {
+        if (!futureIncome.length) {
+          return <p className="text-sm text-gray-400 text-center py-6">אין הכנסות לעריכה</p>
+        }
+        return (
+          <div className="space-y-2">
+            {futureIncome.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => pickIncomeForEdit(item)}
+                className="w-full text-right bg-gray-50 hover:bg-blue-50 active:bg-blue-100 rounded-xl px-4 py-3 border border-gray-100 transition-colors"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-gray-800 truncate">{item.name || 'ללא שם'}</span>
+                  <span className="text-xs text-gray-500 shrink-0">
+                    {item.amount != null ? `₪${Number(item.amount).toLocaleString()}` : ''}
+                  </span>
+                </div>
+                {item.expectedDate && (
+                  <div className="text-xs text-gray-400 mt-0.5">{item.expectedDate}</div>
+                )}
+              </button>
+            ))}
+          </div>
+        )
+      }
 
       case 'friend_loan': return (<>
         <F label="שם המלווה" name="lenderName" errors={errors}>
@@ -632,7 +677,16 @@ export default function QuickAddModal({ onClose, editTarget }) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
-      onClick={ev => { if (ev.target === ev.currentTarget) onClose() }}
+      onMouseDown={ev => { pressStartedOnBackdropRef.current = ev.target === ev.currentTarget }}
+      onMouseUp={ev => {
+        if (pressStartedOnBackdropRef.current && ev.target === ev.currentTarget) onClose()
+        pressStartedOnBackdropRef.current = false
+      }}
+      onTouchStart={ev => { pressStartedOnBackdropRef.current = ev.target === ev.currentTarget }}
+      onTouchEnd={ev => {
+        if (pressStartedOnBackdropRef.current && ev.target === ev.currentTarget) onClose()
+        pressStartedOnBackdropRef.current = false
+      }}
     >
       <div className="bg-white w-full max-w-md rounded-3xl mx-4 scroll-right" style={{ maxHeight: '88vh', overflowY: 'auto' }}>
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
@@ -664,14 +718,16 @@ export default function QuickAddModal({ onClose, editTarget }) {
           ) : (
             <>
               <div className="mt-1">{renderForm()}</div>
-              <button
-                onClick={handleSave}
-                className={`w-full py-3.5 rounded-2xl font-bold text-sm mt-4 transition-all duration-200 ${
-                  saved ? 'bg-green-500 text-white scale-95' : 'bg-blue-600 text-white active:opacity-80'
-                }`}
-              >
-                {saved ? '✓ נשמר!' : 'שמור'}
-              </button>
+              {step !== 'edit_income' && (
+                <button
+                  onClick={handleSave}
+                  className={`w-full py-3.5 rounded-2xl font-bold text-sm mt-4 transition-all duration-200 ${
+                    saved ? 'bg-green-500 text-white scale-95' : 'bg-blue-600 text-white active:opacity-80'
+                  }`}
+                >
+                  {saved ? '✓ נשמר!' : 'שמור'}
+                </button>
+              )}
             </>
           )}
         </div>
