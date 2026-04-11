@@ -386,8 +386,10 @@ ${g}`}class Qe extends Error{constructor({message:t,code:n,cause:r,name:s}){var 
 
   <script>
     // פותח את תפריט ההדפסה אוטומטית אחרי טעינה — ודואג שהחלון יהיה בפרונט
+    // והכותרת מוגדרת רגע לפני ההדפסה (כרום לוקח ממנה את שם ברירת המחדל של הקובץ)
     window.addEventListener('load', () => {
       setTimeout(() => {
+        document.title = ${JSON.stringify(b)}
         try { window.focus() } catch {}
         window.print()
       }, 400)
