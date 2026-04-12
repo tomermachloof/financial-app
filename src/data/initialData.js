@@ -4,7 +4,7 @@
 // ==========================================
 
 export const initialAccounts = [
-  { id: 'ba1',  name: "עו\"ש תומר פועלים",      bank: 'פועלים',    balance: 5010,   owner: 'תומר', type: 'checking' },
+  { id: 'ba1',  name: "עו\"ש תומר פועלים",      bank: 'פועלים',    balance: 4079,   owner: 'תומר', type: 'checking' },
   { id: 'ba2',  name: "עו\"ש תומר בינלאומי",    bank: 'בינלאומי',  balance: 5659,   owner: 'תומר', type: 'checking' },
   { id: 'ba3',  name: "תומר עסקי בינלאומי",     bank: 'בינלאומי',  balance: 111,    owner: 'תומר', type: 'business' },
   { id: 'ba4',  name: "עו\"ש יעל בינלאומי",     bank: 'בינלאומי',  balance: 3091,   owner: 'יעל',  type: 'checking' },
