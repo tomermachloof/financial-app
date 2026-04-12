@@ -1,6 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
-export default function Modal({ title, onClose, children }) {
+export default function Modal({ title, onClose, onSave, children }) {
+  // Track whether a drag-select started inside the modal body.
+  // If it did, we must NOT close even if the user releases on the backdrop.
+  const pressStartedOnBackdropRef = useRef(false)
+
   // Close on Escape
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose() }
@@ -8,13 +12,37 @@ export default function Modal({ title, onClose, children }) {
     return () => window.removeEventListener('keydown', handler)
   }, [onClose])
 
+  // Enter → save. In textarea: only Shift+Enter saves; plain Enter = newline.
+  const handleKeyDown = (e) => {
+    if (e.key !== 'Enter' || !onSave) return
+    const tag = e.target?.tagName
+    if (tag === 'TEXTAREA' && !e.shiftKey) return
+    // בשדות אחרים (input, select) — תמיד שמור
+    e.preventDefault()
+    onSave()
+  }
+
+  const handleBackdropPointerDown = (e) => {
+    pressStartedOnBackdropRef.current = e.target === e.currentTarget
+  }
+  const handleBackdropPointerUp = (e) => {
+    // Close only when both press-down AND release happened on the backdrop itself.
+    if (pressStartedOnBackdropRef.current && e.target === e.currentTarget) {
+      onClose()
+    }
+    pressStartedOnBackdropRef.current = false
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+      onMouseDown={handleBackdropPointerDown}
+      onMouseUp={handleBackdropPointerUp}
+      onTouchStart={handleBackdropPointerDown}
+      onTouchEnd={handleBackdropPointerUp}
     >
-      <div className="bg-white rounded-2xl w-full max-w-lg max-h-[88vh] flex flex-col shadow-2xl">
+      <div className="bg-white rounded-2xl w-full max-w-lg max-h-[88vh] flex flex-col shadow-2xl" onKeyDown={handleKeyDown}>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-100">
           <h2 className="text-lg font-bold text-gray-800">{title}</h2>
@@ -47,11 +75,19 @@ export function Field({ label, children, hint }) {
 }
 
 export function Input({ value, onChange, type = 'text', placeholder, min, step }) {
+  // בשדה תאריך — פתיחת בוחר התאריכים בלחיצה בכל מקום על השדה (לא רק על האייקון)
+  const handleClick = (e) => {
+    if (type === 'date' && typeof e.currentTarget.showPicker === 'function') {
+      try { e.currentTarget.showPicker() } catch {}
+    }
+  }
   return (
     <input
       type={type}
       value={value ?? ''}
       onChange={e => onChange(type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)}
+      onClick={handleClick}
+      onFocus={handleClick}
       placeholder={placeholder}
       min={min}
       step={step}

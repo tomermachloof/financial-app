@@ -1,7 +1,15 @@
 const APP_URL = 'https://tomermachloof.github.io/financial-app/'
 
 self.addEventListener('install', () => self.skipWaiting())
-self.addEventListener('activate', e => e.waitUntil(clients.claim()))
+self.addEventListener('activate', e => {
+  e.waitUntil((async () => {
+    await self.clients.claim()
+    const windowClients = await self.clients.matchAll({ type: 'window' })
+    for (const client of windowClients) {
+      try { client.navigate(client.url) } catch {}
+    }
+  })())
+})
 
 self.addEventListener('push', e => {
   if (!e.data) return

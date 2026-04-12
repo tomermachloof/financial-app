@@ -1,7 +1,8 @@
 name = "financial-notify"
 main = "notify.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
 [triggers]
-crons = ["0 5 * * *"]
+# Run at 4 and 5 UTC to cover DST; worker code dispatches only at Israel 07:00
+crons = ["0 4 * * *", "0 5 * * *"]

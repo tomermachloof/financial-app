@@ -1,12 +1,15 @@
 // ── Number formatting ──────────────────────────────────────────────────────
 export const formatILS = (amount, options = {}) => {
   if (amount === null || amount === undefined) return '—'
+  // signed=true → מציג "+" לפני מספר חיובי (כולל אותו בתוך עטיפת ה-LRE
+  // כדי שה-BiDi לא ידחוף אותו לשורה נפרדת ב-RTL)
+  const { signed, ...fmtOptions } = options
   const abs = Math.abs(amount)
   const formatted = new Intl.NumberFormat('he-IL', {
     maximumFractionDigits: 0,
-    ...options,
+    ...fmtOptions,
   }).format(abs)
-  const sign = amount < 0 ? '-' : ''
+  const sign = amount < 0 ? '-' : (signed && amount > 0 ? '+' : '')
   return `\u202A${sign}₪${formatted}\u202C`
 }
 
@@ -73,14 +76,22 @@ export const urgencyClass = (days) => {
 }
 
 // ── Loan helpers ───────────────────────────────────────────────────────────
-export const calcEndDate = (startDateStr, durationMonths) => {
+export const calcEndDate = (startDateStr, durationMonths, paymentSchedule) => {
+  if (paymentSchedule?.length > 0) {
+    const lastDate = paymentSchedule[paymentSchedule.length - 1].date
+    if (lastDate) return lastDate
+  }
   if (!startDateStr || !durationMonths) return null
   const d = new Date(startDateStr)
   d.setMonth(d.getMonth() + durationMonths)
   return d.toISOString().slice(0, 10)
 }
 
-export const calcRemainingMonths = (startDateStr, durationMonths) => {
+export const calcRemainingMonths = (startDateStr, durationMonths, paymentSchedule) => {
+  if (paymentSchedule?.length > 0) {
+    const todayStr = new Date().toISOString().split('T')[0]
+    return paymentSchedule.filter(p => p.date && p.date > todayStr).length
+  }
   if (!startDateStr || !durationMonths) return null
   const end = new Date(calcEndDate(startDateStr, durationMonths))
   const today = new Date()
@@ -88,10 +99,15 @@ export const calcRemainingMonths = (startDateStr, durationMonths) => {
   return Math.max(0, diff)
 }
 
-export const calcLoanProgress = (startDateStr, durationMonths) => {
+export const calcLoanProgress = (startDateStr, durationMonths, paymentSchedule) => {
+  if (paymentSchedule?.length > 0) {
+    const todayStr = new Date().toISOString().split('T')[0]
+    const paid = paymentSchedule.filter(p => p.date && p.date <= todayStr).length
+    return Math.max(0, Math.min(100, Math.round((paid / paymentSchedule.length) * 100)))
+  }
   if (!startDateStr || !durationMonths) return 0
   const start = new Date(startDateStr)
   const today = new Date()
   const elapsed = (today.getFullYear() - start.getFullYear()) * 12 + (today.getMonth() - start.getMonth())
-  return Math.min(100, Math.round((elapsed / durationMonths) * 100))
+  return Math.max(0, Math.min(100, Math.round((elapsed / durationMonths) * 100)))
 }

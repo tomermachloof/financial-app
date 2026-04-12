@@ -688,7 +688,18 @@ export default function QuickAddModal({ onClose, editTarget }) {
         pressStartedOnBackdropRef.current = false
       }}
     >
-      <div className="bg-white w-full max-w-md rounded-3xl mx-4 scroll-right" style={{ maxHeight: '88vh', overflowY: 'auto' }}>
+      <div
+        className="bg-white w-full max-w-md rounded-3xl mx-4 scroll-right"
+        style={{ maxHeight: '88vh', overflowY: 'auto' }}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter') return
+          if (step === 'pick' || step === 'edit_income') return
+          const tag = e.target?.tagName
+          if (tag === 'TEXTAREA' && !e.shiftKey) return
+          e.preventDefault()
+          handleSave()
+        }}
+      >
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
           {step !== 'pick' && !editTarget
             ? <button onClick={() => { setStep('pick'); setForm({}); setErrors([]) }} className="text-blue-500 text-sm font-medium">חזרה</button>

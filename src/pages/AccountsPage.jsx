@@ -291,7 +291,7 @@ export default function AccountsPage() {
 
       {/* ── Modals ── */}
       {modal?.type === 'account' && (
-        <Modal title={modal.mode === 'add' ? 'חשבון חדש' : 'עריכת חשבון'} onClose={() => setModal(null)}>
+        <Modal title={modal.mode === 'add' ? 'חשבון חדש' : 'עריכת חשבון'} onClose={() => setModal(null)} onSave={saveAccount}>
           <Field label="שם"><Input value={form.name} onChange={v => setF('name', v)} placeholder="שם החשבון" /></Field>
           <Field label="בנק"><Select value={form.bank} onChange={v => setF('bank', v)} options={BANK_OPTIONS} /></Field>
           <Field label="בעלים"><Select value={form.owner} onChange={v => setF('owner', v)} options={OWNER_OPTIONS} /></Field>
@@ -310,7 +310,7 @@ export default function AccountsPage() {
       )}
 
       {modal?.type === 'inv' && (
-        <Modal title={modal.mode === 'add' ? 'נכס חדש' : 'עריכת נכס'} onClose={() => setModal(null)}>
+        <Modal title={modal.mode === 'add' ? 'נכס חדש' : 'עריכת נכס'} onClose={() => setModal(null)} onSave={saveInv}>
           <Field label="שם"><Input value={form.name} onChange={v => setF('name', v)} placeholder="שם הנכס" /></Field>
           <Field label="סוג"><Select value={form.type} onChange={v => setF('type', v)} options={INV_TYPE_OPTIONS} /></Field>
           <Field label="בעלים"><Select value={form.owner} onChange={v => setF('owner', v)} options={OWNER_OPTIONS} /></Field>
@@ -323,7 +323,7 @@ export default function AccountsPage() {
       )}
 
       {modal?.type === 'debt' && (
-        <Modal title={modal.mode === 'add' ? 'חוב חדש' : 'עריכת חוב'} onClose={() => setModal(null)}>
+        <Modal title={modal.mode === 'add' ? 'חוב חדש' : 'עריכת חוב'} onClose={() => setModal(null)} onSave={saveDebt}>
           <Field label="שם"><Input value={form.name} onChange={v => setF('name', v)} placeholder="שם האדם" /></Field>
           <Field label="סוג"><Select value={form.type} onChange={v => setF('type', v)} options={DEBT_TYPE_OPTIONS} /></Field>
           <Field label="סכום (₪)">

@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
+import Backdrop from '../components/Backdrop'
 import useStore from '../store/useStore'
 import MiniCalendar from '../components/MiniCalendar'
 import DayOfMonthPicker from '../components/DayOfMonthPicker'
 import QuickAddModal from '../components/QuickAddModal'
 import IncomeEditModal from '../components/IncomeEditModal'
+import PartialPaymentModal from '../components/PartialPaymentModal'
 import {
   calcTotalLiquidity, calcNetWorth, calcSafeToSpend,
   calcMonthlyOut, calcMonthlyIn, getUpcomingEvents, calcRemainingBalance,
@@ -25,7 +27,7 @@ const RANGE_OPTIONS = [
 ]
 
 export default function Dashboard() {
-  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, reminders, doneReminder, doneReminderMonth, undoneReminder, undoneReminderMonth, deleteReminder, updateReminder, updateInvestment, deleteFutureIncome, deleteExpense, deleteRentalIncome, dismissedEvents, dismissEvent } = useStore()
+  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, updateLoan, updateExpense, updateRentalIncome, updateFutureIncome, reminders, doneReminder, doneReminderMonth, undoneReminder, undoneReminderMonth, deleteReminder, updateReminder, updateInvestment, updateAccount, deleteFutureIncome, deleteExpense, deleteRentalIncome, dismissedEvents, dismissEvent } = useStore()
 
   const [rangeDays, setRangeDays] = useState(14)
   const [filterType, setFilterType] = useState('all') // 'all' | 'income' | 'expense'
@@ -34,9 +36,6 @@ export default function Dashboard() {
   const [showAlert, setShowAlert] = useState(false)
   const [showAccountsModal, setShowAccountsModal] = useState(null) // null | 'ILS' | 'USD'
   const [showNetWorthModal, setShowNetWorthModal] = useState(false)
-  const [ccDraft, setCCDraft] = useState({}) // local edits before saving
-  const [ccSaved, setCCSaved] = useState(false)
-  const [ccEditing, setCCEditing] = useState(false)
   const [showAllReminders, setShowAllReminders] = useState(false)
   const [showDataModal, setShowDataModal] = useState(false)
   const [dataTab, setDataTab] = useState('reminders')
@@ -46,6 +45,11 @@ export default function Dashboard() {
   const [editDraft, setEditDraft] = useState({})
   const [invUpdateRem, setInvUpdateRem] = useState(null) // { remId, invId, newValue }
   const [pushStatus, setPushStatus] = useState('loading')
+  const [partialItem, setPartialItem] = useState(null) // { id, _type, currency, accountId, ... }
+  const [accountPickerFor, setAccountPickerFor] = useState(null) // event whose source account is being changed
+  const [peeking, setPeeking] = useState(false) // long-press peek at tomorrow's events
+  const [editingAccId, setEditingAccId] = useState(null) // account id currently being edited inline
+  const [accBalDraft, setAccBalDraft] = useState('')
 
   useEffect(() => { getPushStatus().then(setPushStatus) }, [])
 
@@ -83,7 +87,8 @@ export default function Dashboard() {
   const yesterdayStr = yesterday.toISOString().split('T')[0]
   const thisMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
 
-  const isConfirmed  = (id, dateStr) => confirmedEvents.some(e => e.id === id && e.date === dateStr)
+  const cleanId = (s) => String(s || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
+  const isConfirmed  = (id, dateStr) => confirmedEvents.some(e => cleanId(e.id) === cleanId(id) && e.date === dateStr)
   const accountMap   = Object.fromEntries(accounts.map(a => [a.id, a.name]))
 
   const handleEditEvent = (event) => {
@@ -128,51 +133,6 @@ export default function Dashboard() {
     }
     if (item) setEditTarget({ type, item, action, form })
   }
-
-  const CC_IDS        = ['e_cc1', 'e_cc2', 'e_cc3']
-  const ccExpenses    = expenses.filter(e => CC_IDS.includes(e.id))
-  const CC_CHARGE_DAY = 10
-  const allCCSaved    = ccExpenses.length === 3 && ccExpenses.every(e => e.monthlyAmounts?.[thisMonthKey] != null)
-  const showCCWidget  = today.getDate() >= CC_CHARGE_DAY - 1 && today.getDate() <= CC_CHARGE_DAY
-
-  const ccChargeDate    = new Date(today.getFullYear(), today.getMonth(), CC_CHARGE_DAY)
-  const ccChargeDateStr = ccChargeDate.toISOString().split('T')[0]
-  const allCCPaid       = ccExpenses.length > 0 && ccExpenses.every(e => isConfirmed(e.id, ccChargeDateStr))
-  const ccMonthLabel    = `אשראי ${today.toLocaleDateString('he-IL', { month: 'long' })}`
-  const confirmCCRolledOver = () => ccExpenses.forEach(e => {
-    const amt = e.monthlyAmounts?.[thisMonthKey] ?? e.amount
-    confirmEvent(e.id, yesterdayStr, e.accountId, -amt, false, true)
-  })
-
-  const getCCValue = (id) => {
-    if (ccDraft[id] !== undefined) return ccDraft[id]
-    const stored = expenses.find(e => e.id === id)?.monthlyAmounts?.[thisMonthKey]
-    return stored != null ? String(stored) : ''
-  }
-  const saveCCAmounts = () => {
-    // Compute final amounts (draft > stored > default)
-    const finalAmounts = {}
-    ccExpenses.forEach(e => {
-      const draft  = ccDraft[e.id]
-      const stored = e.monthlyAmounts?.[thisMonthKey]
-      const parsed = draft !== undefined ? parseInt(draft, 10) : null
-      finalAmounts[e.id] = (parsed != null && !isNaN(parsed) && parsed >= 0) ? parsed
-                         : stored != null ? stored
-                         : e.amount
-    })
-    // Save monthly amounts only — deduction happens on charge day via normal event flow
-    ccExpenses.forEach(e => updateExpenseMonthlyAmount(e.id, thisMonthKey, finalAmounts[e.id]))
-    setCCDraft({})
-    setCCEditing(false)
-  }
-  const ccTotal = ccExpenses.reduce((s, e) => {
-    const stored = e.monthlyAmounts?.[thisMonthKey]
-    const draft  = ccDraft[e.id]
-    const val = draft !== undefined ? (parseInt(draft, 10) || 0)
-              : stored != null     ? stored
-              : (e.amount || 0)
-    return s + val
-  }, 0)
 
   // ── Discount transfer reminder ─────────────────────────────────────────
   const DISCOUNT_IDS    = ['ba9', 'ba10']
@@ -243,8 +203,8 @@ export default function Dashboard() {
     if (!ilsDangerEvent && _runILS < 0) ilsDangerEvent = { ...e, balanceAfter: _runILS }
   }
 
-  // Fetch 5 days back to catch unconfirmed income rollover events
-  const allRaw = getUpcomingEvents(loans, expenses, rentalIncome, futureIncome, rangeDays, usdRate, 5)
+  // Fetch 31 days back to catch any unconfirmed past event (income OR expense)
+  const allRaw = getUpcomingEvents(loans, expenses, rentalIncome, futureIncome, rangeDays, usdRate, 31)
 
   // Per-account running balances (native currency)
   const runningAccBal = {}
@@ -253,20 +213,26 @@ export default function Dashboard() {
   })
 
   // Running balances — USD events affect USD account, ILS events affect ILS account
+  // חשוב: רק אירועי הווה/עתיד משפיעים על היתרה המרוצה.
+  // אירועי עבר לא — אם אושרו, כבר ירדו מהיתרה ברגע האישור;
+  // אם לא אושרו, הם רק תזכורת ולא דורסים את יתרת החשבון שהמשתמש עדכן ידנית.
   let runningILS = ilsLiquidity
   let runningUSD = usdLiquidity
   const allEvents = allRaw.map(e => {
     const d = new Date(e.date); d.setHours(0,0,0,0)
     const dateStr = d.toISOString().split('T')[0]
-    runningUSD += usdDelta(e)
-    if (!isFriendLoan(e)) runningILS += ilsDelta(e)
+    const isPast = dateStr < todayStr
+    if (!isPast) {
+      runningUSD += usdDelta(e)
+      if (!isFriendLoan(e)) runningILS += ilsDelta(e)
+    }
     const accountName = e.accountId ? accountMap[e.accountId] : null
 
-    // Per-account sufficiency check (only for outgoing charges, skip confirmed)
+    // Per-account sufficiency check (only for outgoing charges, skip confirmed, skip past)
     let accountStatus = null
     const evDelta = calcDelta(e)
     const alreadyConfirmed = isConfirmed(e.id, dateStr)
-    if (!alreadyConfirmed && e.accountId && evDelta !== 0) {
+    if (!isPast && !alreadyConfirmed && e.accountId && evDelta !== 0) {
       const bal = runningAccBal[e.accountId] ?? 0
       const balAfter = bal + evDelta
       if (evDelta < 0) {
@@ -280,23 +246,31 @@ export default function Dashboard() {
     return { ...e, balanceAfter: runningILS, balanceAfterUSD: runningUSD, dateStr, accountName, accountStatus }
   })
 
-  // Rolled-over: past unconfirmed INCOME events only (amount > 0 = money coming in)
-  const rolledOver = allEvents
-    .filter(e => e.dateStr < todayStr && !isConfirmed(e.id, e.dateStr) && e.amount > 0)
-    .map(e => ({ ...e, date: today, dateStr: todayStr, rolledOver: true, originalDateStr: e.dateStr, originalDate: e.date, id: e.id + '_ro' }))
+  const isDismissed = (id, date) => (dismissedEvents || []).some(d => cleanId(d.id) === cleanId(id) && d.date === date)
 
-  const isDismissed = (id, date) => (dismissedEvents || []).some(d => d.id === id && d.date === date)
+  // Rolled-over: ALL past unconfirmed events (income AND expenses) — stay until user confirms
+  const rolledOver = allEvents
+    .filter(e => e.dateStr < todayStr && !isConfirmed(e.id, e.dateStr) && !isDismissed(e.id, e.dateStr))
+    .map(e => ({ ...e, date: today, dateStr: todayStr, rolledOver: true, originalDateStr: e.dateStr, originalDate: e.date, id: e.id + '_ro' }))
 
   const todayEvents = [
     ...rolledOver,
     ...allEvents.filter(e => e.dateStr === todayStr && !isConfirmed(e.id, todayStr)),
   ].filter(e => !isDismissed(e.id, todayStr))
-  const isConfirmedRo = (id, origDateStr) => confirmedEvents.some(e => e.id === id && e.date === origDateStr && e._ro)
+  // Confirmed-today list: a confirmation only appears on the exact day it
+  // was clicked. Once the day advances, it disappears — regardless of whether
+  // the underlying event was rolled over from the past or was today itself.
+  const isConfirmedToday = (id, dateStr) => confirmedEvents.some(e =>
+    cleanId(e.id) === cleanId(id) && e.date === dateStr && e.confirmedOn === todayStr
+  )
+  const isConfirmedRoToday = (id, origDateStr) => confirmedEvents.some(e =>
+    cleanId(e.id) === cleanId(id) && e.date === origDateStr && e._ro && e.confirmedOn === todayStr
+  )
   const confirmedRolledOver = allEvents
-    .filter(e => e.dateStr < todayStr && e.amount > 0 && isConfirmedRo(e.id, e.dateStr))
+    .filter(e => e.dateStr < todayStr && isConfirmedRoToday(e.id, e.dateStr))
     .map(e => ({ ...e, date: today, dateStr: todayStr, _confirmedRo: true, originalDateStr: e.dateStr }))
   const confirmedToday = [
-    ...allEvents.filter(e => e.dateStr === todayStr && isConfirmed(e.id, todayStr)),
+    ...allEvents.filter(e => e.dateStr === todayStr && isConfirmedToday(e.id, todayStr)),
     ...confirmedRolledOver,
   ].filter(e => !isDismissed(e.id, todayStr))
   const soonEvents = allEvents.filter(e => e.dateStr > todayStr)
@@ -491,85 +465,6 @@ export default function Dashboard() {
           )}
         </div>}
 
-        {/* Credit card monthly amounts widget — visible only up to charge day */}
-        {ccExpenses.length > 0 && showCCWidget && (() => {
-          const showConfirmed = allCCSaved && !ccEditing
-
-          if (showConfirmed) {
-            // ── Locked state ─────────────────────────────────────────────
-            return (
-              <div className="card overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-2.5 bg-green-50">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">💳</span>
-                    <div>
-                      <p className="text-xs font-bold text-green-700">✓ {ccMonthLabel} — שולם</p>
-                      <p className="text-xs text-green-500">סה״כ: {formatILS(ccTotal)}</p>
-                    </div>
-                  </div>
-                  <button onClick={() => setCCEditing(true)} className="text-xs text-gray-400 border border-gray-200 bg-white px-2 py-1 rounded-lg active:opacity-70">✏️ ערוך</button>
-                </div>
-                <div className="divide-y divide-gray-50">
-                  {ccExpenses.map(e => (
-                    <div key={e.id} className="flex items-center justify-between px-4 py-2.5">
-                      <p className="text-sm font-medium text-gray-700">{e.name}</p>
-                      <p className="text-sm font-bold text-green-600">{formatILS(e.monthlyAmounts?.[thisMonthKey] ?? e.amount)}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )
-          }
-
-          // ── Input state ─────────────────────────────────────────────────
-          const hasDraft = Object.keys(ccDraft).length > 0
-          return (
-            <div className="card overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-2.5 bg-indigo-50">
-                <div className="flex items-center gap-2">
-                  <span className="text-base">💳</span>
-                  <div>
-                    <p className="text-xs font-bold text-indigo-700">חיובי אשראי — {today.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}</p>
-                    <p className="text-xs text-indigo-400">סה״כ: {formatILS(ccTotal)}</p>
-                  </div>
-                </div>
-                {ccSaved && <span className="text-xs text-green-600 font-semibold">✓ נשמר</span>}
-              </div>
-              <div className="divide-y divide-gray-50">
-                {ccExpenses.map(e => {
-                  const stored = e.monthlyAmounts?.[thisMonthKey]
-                  const val    = getCCValue(e.id)
-                  return (
-                    <div key={e.id} className="flex items-center justify-between px-4 py-2.5">
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">{e.name}</p>
-                        <p className="text-xs text-gray-400">
-                          {stored != null ? `עודכן · ברירת מחדל: ${formatILS(e.amount)}` : `ברירת מחדל: ${formatILS(e.amount)}`}
-                        </p>
-                      </div>
-                      <input
-                        type="number"
-                        inputMode="numeric"
-                        value={val}
-                        placeholder={String(e.amount)}
-                        onChange={ev => setCCDraft(d => ({ ...d, [e.id]: ev.target.value }))}
-                        className="w-24 text-left border border-gray-200 rounded-lg px-2 py-1 text-sm font-bold text-gray-700 focus:outline-none focus:border-indigo-400"
-                        dir="ltr"
-                      />
-                    </div>
-                  )
-                })}
-              </div>
-              <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between bg-gray-50">
-                <p className="text-xs text-gray-400">סה״כ: {formatILS(ccTotal)}</p>
-                <button onClick={saveCCAmounts} className="bg-indigo-600 text-white text-sm font-bold px-4 py-2 rounded-xl active:opacity-70 active:scale-95 transition-all">
-                  ✓ אשר סכומים
-                </button>
-              </div>
-            </div>
-          )
-        })()}
-
         {/* Friend loan reminders */}
         {loans.filter(l => l.paidByFriend).map(loan => {
           const nextCharge = (() => {
@@ -647,35 +542,8 @@ export default function Dashboard() {
 
         {/* Today's events */}
         {(() => {
-          const ccAllRolledOver = !showCCWidget && CC_IDS.every(id => visibleToday.some(e => e.id === id + '_ro'))
-          const ccRoPaid        = ccExpenses.length > 0 && ccExpenses.every(e => isConfirmed(e.id, yesterdayStr))
-          const ccTodayEvents   = CC_IDS.map(id => visibleToday.find(e => e.id === id)).filter(Boolean)
-          const ccAllToday      = ccTodayEvents.length === CC_IDS.length && !ccExpenses.every(e => isConfirmed(e.id, todayStr))
-          const confirmCCToday  = () => ccTodayEvents.forEach(e => {
-            confirmEvent(e.id, todayStr, e.accountId, calcDelta(e), e.currency === 'USD', false)
-          })
           return (
           <Section title="היום" icon="⚡" subtitle={today.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })} toolbar={<button onClick={() => setShowDataModal(true)} className="text-xs text-blue-300 font-normal active:opacity-60">נתונים</button>}>
-            {/* CC confirm-all banner — charge day */}
-            {ccAllToday && (
-              <div className="flex items-center justify-between px-4 py-3 bg-indigo-50 border-b border-indigo-100">
-                <div>
-                  <p className="text-xs font-bold text-indigo-700">💳 {ccMonthLabel}</p>
-                  <p className="text-xs text-indigo-400">סה״כ: {formatILS(ccTotal)}</p>
-                </div>
-                <button onClick={confirmCCToday} className="bg-indigo-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl active:opacity-70">✓ אשר הכל</button>
-              </div>
-            )}
-            {/* CC rolled-over confirm-all banner */}
-            {ccAllRolledOver && !ccRoPaid && (
-              <div className="flex items-center justify-between px-4 py-3 bg-indigo-50 border-b border-indigo-100">
-                <div>
-                  <p className="text-xs font-bold text-indigo-700">💳 חיובי אשראי מאתמול</p>
-                  <p className="text-xs text-indigo-400">סה״כ: {formatILS(ccTotal)}</p>
-                </div>
-                <button onClick={confirmCCRolledOver} className="bg-indigo-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl active:opacity-70">✓ אשר הכל</button>
-              </div>
-            )}
             {/* Today's reminders */}
             {(reminders || []).filter(r => {
               if (r.type === 'monthly') {
@@ -725,6 +593,19 @@ export default function Dashboard() {
                 highlight
                 onEdit={() => handleEditEvent(e)}
                 onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')}
+                onAccountEdit={() => setAccountPickerFor(e)}
+                onAmountEdit={e.category === 'credit' ? (newAmt) => {
+                  const baseId = cleanId(e.id)
+                  // Edit the month the charge actually belongs to (handles rolled-over items)
+                  const targetDateStr = e.rolledOver ? e.originalDateStr : e.dateStr || todayStr
+                  const mKey = targetDateStr.slice(0, 7)
+                  updateExpenseMonthlyAmount(baseId, mKey, newAmt)
+                } : undefined}
+                onPartial={(e.type === 'rental' || e.type === 'future') ? () => {
+                  const baseId = cleanId(e.id)
+                  const src = e.type === 'rental' ? rentalIncome.find(r => r.id === baseId) : futureIncome.find(f => f.id === baseId)
+                  if (src) setPartialItem({ ...src, _type: e.type === 'rental' ? 'rental' : 'future' })
+                } : undefined}
                 onConfirm={() => {
                   const id      = e.rolledOver ? e.id.replace('_ro','') : e.id
                   const dateStr = e.rolledOver ? e.originalDateStr : todayStr
@@ -778,6 +659,78 @@ export default function Dashboard() {
                 }}
               />
             ))}
+            {/* הצצה למחר — כפתור בלחיצה ממושכת */}
+            {(() => {
+              const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
+              const tomorrowStr = tomorrow.toISOString().split('T')[0]
+              const tomorrowMonthKey = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}`
+              const tomorrowDay = tomorrow.getDate()
+              const tomorrowLabel = tomorrow.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })
+
+              const tomorrowReminders = (reminders || []).filter(r => {
+                if (r.type === 'monthly') {
+                  return r.day === tomorrowDay && !(r.doneMonths || []).includes(tomorrowMonthKey)
+                }
+                return !r.done && r.date === tomorrowStr
+              })
+              const tomorrowEvents = allEvents.filter(e =>
+                e.dateStr === tomorrowStr && !isConfirmed(e.id, tomorrowStr) && !isDismissed(e.id, tomorrowStr)
+              )
+              const totalTomorrow = tomorrowReminders.length + tomorrowEvents.length
+
+              const stop = () => setPeeking(false)
+              return (
+                <div className="px-4 py-3 bg-white">
+                  <button
+                    type="button"
+                    onPointerDown={() => setPeeking(true)}
+                    onPointerUp={stop}
+                    onPointerLeave={stop}
+                    onPointerCancel={stop}
+                    onContextMenu={ev => ev.preventDefault()}
+                    className="w-full py-2 rounded-xl bg-indigo-50 text-indigo-600 text-xs font-semibold active:bg-indigo-100 select-none"
+                    style={{ WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' }}
+                  >
+                    👁 החזק להצצה למחר
+                  </button>
+                  {peeking && (
+                    <div className="mt-2 rounded-xl border border-indigo-100 bg-indigo-50 overflow-hidden">
+                      <div className="px-3 py-2 text-xs font-semibold text-indigo-700 border-b border-indigo-100">
+                        מחר · {tomorrowLabel}
+                      </div>
+                      {totalTomorrow === 0 ? (
+                        <div className="px-3 py-4 text-center text-xs text-gray-500">אין אירועים מחר ✓</div>
+                      ) : (
+                        <div className="divide-y divide-indigo-100">
+                          {tomorrowReminders.map(r => (
+                            <div key={r.id + '_peek'} className="px-3 py-2">
+                              <p className="text-sm text-gray-800">🔔 {r.text}</p>
+                              {r.type === 'monthly' && <p className="text-xs text-gray-400">חוזרת בכל {r.day} לחודש</p>}
+                            </div>
+                          ))}
+                          {tomorrowEvents.map(e => {
+                            const isIncomePeek = (e.amount || 0) > 0
+                            const amountTxt = e.currency === 'USD'
+                              ? `${isIncomePeek ? '+' : '-'}$${new Intl.NumberFormat('en').format(Math.abs(Math.round(e.usdGross || e.usdAmount || e.amount || 0)))}`
+                              : formatILS(e.amount, { signed: isIncomePeek })
+                            const emoji = e.type === 'loan' ? '💳' : e.type === 'rental' ? '💰' : e.type === 'future' ? (isIncomePeek ? '💰' : '💸') : '💸'
+                            return (
+                              <div key={e.id + '_peek'} className="px-3 py-2 flex items-center justify-between">
+                                <div>
+                                  <p className="text-sm text-gray-800">{emoji} {e.name}</p>
+                                  {e.accountName && <p className="text-xs text-blue-400">{e.accountName}</p>}
+                                </div>
+                                <span dir="ltr" className={`text-sm font-bold whitespace-nowrap ${isIncomePeek ? 'text-green-600' : 'text-red-500'}`}>{amountTxt}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
           </Section>
           )
         })()}
@@ -832,7 +785,7 @@ export default function Dashboard() {
               </div>
             }
           >
-            {visibleSoon.map(e => <EventRow key={e.id} event={e} onEdit={() => handleEditEvent(e)} onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')} />)}
+            {visibleSoon.map(e => <EventRow key={e.id} event={e} onEdit={() => handleEditEvent(e)} onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')} onAccountEdit={() => setAccountPickerFor(e)} />)}
           </Section>
         )}
 
@@ -857,9 +810,11 @@ export default function Dashboard() {
           })
         const total = filtered.reduce((s, a) => s + (isUSDModal ? (a.usdBalance || 0) : (a.balance || 0)), 0)
         return (
-          <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setShowAccountsModal(null)}>
-            <div className="absolute inset-0 bg-black bg-opacity-40" />
-            <div className="relative bg-white rounded-t-2xl w-full shadow-xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <Backdrop
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black bg-opacity-40"
+            onClose={() => setShowAccountsModal(null)}
+          >
+            <div className="relative bg-white rounded-t-2xl w-full shadow-xl max-h-[80vh] flex flex-col">
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                 <h3 className="font-bold text-gray-800 text-sm">
                   {isUSDModal ? '💵 יתרות חשבונות דולריים' : '💳 יתרות חשבונות שקליים'}
@@ -869,19 +824,53 @@ export default function Dashboard() {
               <div className="overflow-y-auto divide-y divide-gray-50 scroll-right">
                 {filtered.map(a => {
                   const bal = isUSDModal ? (a.usdBalance || 0) : (a.balance || 0)
+                  const isEditing = editingAccId === a.id
+                  const saveBal = () => {
+                    const v = parseFloat(accBalDraft)
+                    if (!isNaN(v)) {
+                      updateAccount(a.id, isUSDModal ? { usdBalance: v } : { balance: v })
+                    }
+                    setEditingAccId(null); setAccBalDraft('')
+                  }
                   return (
-                    <div key={a.id} className="flex items-center justify-between px-4 py-2.5">
+                    <div
+                      key={a.id}
+                      onClick={() => {
+                        if (isEditing) return
+                        setEditingAccId(a.id)
+                        setAccBalDraft(String(bal))
+                      }}
+                      className="flex items-center justify-between px-4 py-2.5 active:bg-gray-50 cursor-pointer"
+                    >
                       <div>
                         <p className="text-sm font-medium text-gray-800">{a.name}</p>
                         <p className="text-xs text-gray-400">{a.bank} · {a.owner}</p>
                       </div>
-                      <div className="text-left">
-                        <p className={`text-sm font-bold ${bal < 0 ? 'text-red-500' : 'text-gray-800'}`}>
-                          {isUSDModal
-                            ? `$${new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(bal)}`
-                            : formatILS(bal)}
-                        </p>
-                        {isUSDModal && <p className="text-xs text-gray-400">{formatILS(Math.round(bal * usdRate))}</p>}
+                      <div className="text-left" onClick={e => e.stopPropagation()}>
+                        {isEditing ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              value={accBalDraft}
+                              onChange={ev => setAccBalDraft(ev.target.value)}
+                              autoFocus
+                              onKeyDown={ev => { if (ev.key === 'Enter') saveBal(); if (ev.key === 'Escape') { setEditingAccId(null); setAccBalDraft('') } }}
+                              className="w-24 text-left border border-blue-300 rounded-lg px-2 py-1 text-sm font-bold focus:outline-none focus:border-blue-500"
+                              dir="ltr"
+                            />
+                            <button onClick={saveBal} className="text-xs bg-blue-600 text-white px-2 py-1 rounded-lg font-medium">✓</button>
+                          </div>
+                        ) : (
+                          <>
+                            <p className={`text-sm font-bold ${bal < 0 ? 'text-red-500' : 'text-gray-800'}`}>
+                              {isUSDModal
+                                ? `$${new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(bal)}`
+                                : formatILS(bal)}
+                            </p>
+                            {isUSDModal && <p className="text-xs text-gray-400">{formatILS(Math.round(bal * usdRate))}</p>}
+                          </>
+                        )}
                       </div>
                     </div>
                   )
@@ -896,7 +885,7 @@ export default function Dashboard() {
                 </span>
               </div>
             </div>
-          </div>
+          </Backdrop>
         )
       })()}
 
@@ -938,9 +927,11 @@ export default function Dashboard() {
         )
 
         return (
-          <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setShowNetWorthModal(false)}>
-            <div className="absolute inset-0 bg-black bg-opacity-40" />
-            <div className="relative bg-white rounded-t-2xl w-full shadow-xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <Backdrop
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black bg-opacity-40"
+            onClose={() => setShowNetWorthModal(false)}
+          >
+            <div className="relative bg-white rounded-t-2xl w-full shadow-xl max-h-[85vh] flex flex-col">
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                 <h3 className="font-bold text-gray-800 text-sm">📊 חישוב הון נטו</h3>
                 <button onClick={() => setShowNetWorthModal(false)} className="text-gray-400 text-xl leading-none">×</button>
@@ -997,7 +988,7 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
-          </div>
+          </Backdrop>
         )
       })()}
 
@@ -1019,8 +1010,10 @@ export default function Dashboard() {
           setInvUpdateRem(null)
         }
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
-            onClick={ev => { if (ev.target === ev.currentTarget) setInvUpdateRem(null) }}>
+          <Backdrop
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
+            onClose={() => setInvUpdateRem(null)}
+          >
             <div className="bg-white w-full max-w-sm rounded-3xl mx-4 p-6">
               <p className="font-bold text-gray-800 text-base mb-1">📈 {inv?.name}</p>
               {curVal != null && <p className="text-xs text-gray-400 mb-4">שווי נוכחי: {symbol}{Number(curVal).toLocaleString()}</p>}
@@ -1037,15 +1030,15 @@ export default function Dashboard() {
                 <button onClick={confirmUpdate} className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold">עדכן ✓</button>
               </div>
             </div>
-          </div>
+          </Backdrop>
         )
       })()}
 
       {/* All Reminders Modal */}
       {showAllReminders && (
-        <div
+        <Backdrop
           className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
-          onClick={ev => { if (ev.target === ev.currentTarget) setShowAllReminders(false) }}
+          onClose={() => setShowAllReminders(false)}
         >
           <div className="bg-white w-full max-w-md rounded-3xl mx-4 scroll-right" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
             <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
@@ -1149,7 +1142,7 @@ export default function Dashboard() {
               })}
             </div>
           </div>
-        </div>
+        </Backdrop>
       )}
       {showDataModal && (() => {
         const pendingFuture  = futureIncome.filter(f => f.status === 'pending')
@@ -1164,8 +1157,10 @@ export default function Dashboard() {
           { key: 'expenses',       label: '🔴 חיובים קבועים',     count: expenses.length },
         ]
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
-            onClick={ev => { if (ev.target === ev.currentTarget) setShowDataModal(false) }}>
+          <Backdrop
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
+            onClose={() => setShowDataModal(false)}
+          >
             <div className="bg-white w-full max-w-md rounded-3xl mx-4 scroll-right" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
               <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
                 <span className="font-bold text-gray-800 text-base">📋 נתונים</span>
@@ -1295,11 +1290,70 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
-          </div>
+          </Backdrop>
         )
       })()}
       {incomeEditItem && <IncomeEditModal item={incomeEditItem} onClose={() => setIncomeEditItem(null)} />}
       {editTarget && <QuickAddModal editTarget={editTarget} onClose={() => setEditTarget(null)} />}
+      {partialItem && <PartialPaymentModal item={partialItem} onClose={() => setPartialItem(null)} />}
+
+      {/* Account picker — change source bank account on an event's underlying item */}
+      {accountPickerFor && (() => {
+        const ev = accountPickerFor
+        const isUSD = ev.currency === 'USD'
+        const list = accounts.filter(a => isUSD ? a.currency === 'USD' : a.currency !== 'USD')
+        const baseId = cleanId(ev.id)
+        const currentId = ev.accountId || null
+        const pick = (newId) => {
+          if (ev.type === 'loan')         updateLoan(baseId,         { accountId: newId })
+          else if (ev.type === 'expense') updateExpense(baseId,      { accountId: newId })
+          else if (ev.type === 'rental')  updateRentalIncome(baseId, { accountId: newId })
+          else if (ev.type === 'future')  updateFutureIncome(baseId, { accountId: newId })
+          setAccountPickerFor(null)
+        }
+        return (
+          <Backdrop
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black bg-opacity-40"
+            onClose={() => setAccountPickerFor(null)}
+          >
+            <div className="relative bg-white rounded-t-2xl w-full shadow-xl max-h-[80vh] flex flex-col">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                <h3 className="font-bold text-gray-800 text-sm">
+                  {isUSD ? '💵 בחר חשבון דולרי' : '💳 בחר חשבון שקלי'}
+                </h3>
+                <button onClick={() => setAccountPickerFor(null)} className="text-gray-400 text-xl leading-none">×</button>
+              </div>
+              <div className="px-4 py-2 text-xs text-gray-500 border-b border-gray-50">
+                {ev.name} — השינוי יחול על כל החיובים הבאים. היסטוריה קיימת לא משתנה.
+              </div>
+              <div className="overflow-y-auto divide-y divide-gray-50">
+                {list.length === 0 && (
+                  <p className="px-4 py-6 text-center text-sm text-gray-400">אין חשבונות במטבע הזה</p>
+                )}
+                {list.map(a => {
+                  const bal = isUSD ? (a.usdBalance || 0) : (a.balance || 0)
+                  const isCurrent = a.id === currentId
+                  return (
+                    <button
+                      key={a.id}
+                      onClick={() => pick(a.id)}
+                      className={`w-full flex items-center justify-between px-4 py-3 active:bg-gray-50 ${isCurrent ? 'bg-blue-50' : ''}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {isCurrent && <span className="text-blue-500 text-sm">✓</span>}
+                        <span className="text-sm font-medium text-gray-800">{a.name}</span>
+                      </div>
+                      <span className="text-xs text-gray-400" dir="ltr">
+                        {isUSD ? `$${new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(bal)}` : formatILS(bal)}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </Backdrop>
+        )
+      })()}
     </div>
   )
 }
@@ -1331,12 +1385,25 @@ function Section({ title, icon, subtitle, toolbar, children }) {
   )
 }
 
-function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowAccounts, onDelete, onEdit }) {
+function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowAccounts, onDelete, onEdit, onPartial, onAmountEdit, onAccountEdit }) {
   const days = daysUntil(event.date instanceof Date ? event.date.toISOString() : String(event.date))
   const isIncome = event.amount > 0
   const c = colorMap[event.color] || colorMap.gray
   const isUSD = event.currency === 'USD'
   const balanceNegative = isUSD ? event.balanceAfterUSD < 0 : event.balanceAfter < 0
+  const [editingAmount, setEditingAmount] = useState(false)
+  const [amountDraft, setAmountDraft] = useState('')
+  const canEditAmount = !confirmed && !!onAmountEdit
+  const startEditAmount = () => {
+    if (!canEditAmount) return
+    setAmountDraft(String(Math.abs(Math.round(event.amount || 0))))
+    setEditingAmount(true)
+  }
+  const commitEditAmount = () => {
+    const parsed = parseInt(amountDraft, 10)
+    if (!isNaN(parsed) && parsed >= 0) onAmountEdit(parsed)
+    setEditingAmount(false)
+  }
 
   let dayLabel = ''
   if (days === 0) dayLabel = 'היום'
@@ -1360,7 +1427,18 @@ function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowA
             </p>
             <p className="text-xs text-gray-400">
               {dayLabel}{event.note ? ` · ${event.note}` : ''}
-              {event.accountName && <span className="text-blue-400"> · {event.accountName}</span>}
+              {event.accountName && (
+                !confirmed && onAccountEdit ? (
+                  <> · <button
+                    type="button"
+                    onClick={onAccountEdit}
+                    className="text-blue-400 underline decoration-dotted underline-offset-2 active:opacity-60"
+                    title="לחץ לשינוי חשבון המקור"
+                  >{event.accountName}</button></>
+                ) : (
+                  <span className="text-blue-400"> · {event.accountName}</span>
+                )
+              )}
             </p>
             {event.accountStatus && (
               event.accountStatus.ok ? (
@@ -1385,10 +1463,33 @@ function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowA
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="text-left">
-            <p className={`text-sm font-bold ${isIncome ? 'text-green-600' : 'text-red-500'}`}>
-              {isUSD ? usdDisplay : `${isIncome ? '+' : ''}${formatILS(event.amount)}`}
-            </p>
+          <div className="text-left flex-shrink-0">
+            {editingAmount ? (
+              <input
+                type="number"
+                inputMode="numeric"
+                autoFocus
+                value={amountDraft}
+                onChange={ev => setAmountDraft(ev.target.value)}
+                onBlur={commitEditAmount}
+                onKeyDown={ev => {
+                  if (ev.key === 'Enter') { ev.preventDefault(); commitEditAmount() }
+                  else if (ev.key === 'Escape') { ev.preventDefault(); setEditingAmount(false) }
+                }}
+                className="w-24 text-left border border-indigo-300 rounded-lg px-2 py-1 text-sm font-bold text-gray-700 focus:outline-none focus:border-indigo-500 bg-white"
+                dir="ltr"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={canEditAmount ? startEditAmount : undefined}
+                dir="ltr"
+                className={`text-sm font-bold whitespace-nowrap ${isIncome ? 'text-green-600' : 'text-red-500'} ${canEditAmount ? 'underline decoration-dotted underline-offset-2 active:opacity-60' : ''}`}
+                title={canEditAmount ? 'לחץ לעריכת הסכום לחודש הזה' : ''}
+              >
+                {isUSD ? usdDisplay : formatILS(event.amount, { signed: isIncome })}
+              </button>
+            )}
             {isUSD && event.usdDeductions && (
               <p className="text-xs">
                 <span className="bg-yellow-200 text-yellow-800 font-semibold px-1 rounded text-xs">({event.usdDeductions})</span>
@@ -1401,6 +1502,15 @@ function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowA
               className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 hover:bg-blue-100 hover:text-blue-500 transition-colors flex-shrink-0 text-sm"
             >
               ✎
+            </button>
+          )}
+          {onPartial && !confirmed && (
+            <button
+              onClick={onPartial}
+              className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 hover:bg-orange-100 hover:text-orange-600 transition-colors flex-shrink-0 text-sm"
+              title="תשלום חלקי"
+            >
+              ½
             </button>
           )}
           {onConfirm && (

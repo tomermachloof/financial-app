@@ -246,7 +246,7 @@ export default function LoansPage() {
 
       {/* Modal */}
       {modal && (
-        <Modal title={modal === 'add' ? 'הלוואה חדשה' : 'עריכת הלוואה'} onClose={closeModal}>
+        <Modal title={modal === 'add' ? 'הלוואה חדשה' : 'עריכת הלוואה'} onClose={closeModal} onSave={save}>
           {/* Drop zone for document upload */}
           <div
             className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors mb-3 ${dragOver ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-gray-50'}`}

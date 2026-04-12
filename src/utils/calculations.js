@@ -28,7 +28,30 @@ const calcPaymentsMade = (startDate, chargeDay, durationMonths) => {
  * מחזיר null אם חסר מידע, ומחזיר אובייקט missingFields אם חסרים שדות.
  */
 export const calcRemainingBalance = (loan) => {
-  // יתרה ידועה — מחליפה חישוב
+  // לוח סילוקין קיים — יתרת קרן ישירות מהלוח
+  if (loan.paymentSchedule?.length > 0) {
+    const todayStr = new Date().toISOString().split('T')[0]
+    const pastPayments = loan.paymentSchedule.filter(p => p.date && p.date <= todayStr)
+
+    if (pastPayments.length >= loan.paymentSchedule.length) return { balance: 0, missing: [], fromSchedule: true }
+
+    // אם יש remainingBalance בלוח — נשתמש בו ישירות
+    if (pastPayments.length > 0 && pastPayments[pastPayments.length - 1].remainingBalance != null) {
+      return { balance: Math.round(pastPayments[pastPayments.length - 1].remainingBalance), missing: [], fromSchedule: true }
+    }
+
+    // אם אין תשלומים שעברו — היתרה היא הסכום המקורי
+    if (pastPayments.length === 0) {
+      return { balance: loan.totalAmount || 0, missing: [], fromSchedule: true }
+    }
+
+    // fallback — אם אין remainingBalance, חשב לפי סכום התשלומים שנשארו
+    const futurePayments = loan.paymentSchedule.filter(p => p.date && p.date > todayStr)
+    const remaining = futurePayments.reduce((s, p) => s + (p.amount || 0), 0)
+    return { balance: Math.max(0, Math.round(remaining)), missing: [], fromSchedule: true }
+  }
+
+  // יתרה ידועה — מחליפה חישוב (רק אם אין לוח סילוקין)
   if (loan.balanceOverride != null) {
     return { balance: loan.balanceOverride, missing: [], isOverride: true }
   }
@@ -121,9 +144,18 @@ export const calcMonthlyOut = (loans, expenses, usdRate) => {
   const rate = usdRate || 3.61
   const today = new Date()
   const mKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
-  const loanPayments    = loans.reduce((s, l) => s + (l.monthlyPayment || 0) + (l.extras || []).reduce((e, x) => e + x.amount, 0), 0)
+  const loanPayments    = loans.reduce((s, l) => {
+    const scheduled = (l.paymentSchedule || []).find(p => p.date && p.date.startsWith(mKey))
+    const base = scheduled ? scheduled.amount
+      : (l.monthlyAmounts && l.monthlyAmounts[mKey] != null) ? l.monthlyAmounts[mKey]
+      : (l.monthlyPayment || 0)
+    return s + base + (scheduled ? 0 : (l.extras || []).reduce((e, x) => e + x.amount, 0))
+  }, 0)
   const expensePayments = expenses.reduce((s, e) => {
-    if (e.currency === 'USD') return s + (e.usdAmount || 0) * rate
+    if (e.currency === 'USD') {
+      const amt = (e.monthlyAmounts && e.monthlyAmounts[mKey] != null) ? e.monthlyAmounts[mKey] : (e.usdAmount || 0)
+      return s + amt * rate
+    }
     const amt = (e.monthlyAmounts && e.monthlyAmounts[mKey] != null) ? e.monthlyAmounts[mKey] : (e.amount || 0)
     return s + amt
   }, 0)
@@ -135,9 +167,15 @@ export const calcMonthlyOut = (loans, expenses, usdRate) => {
  */
 export const calcMonthlyIn = (rentalIncome, usdRate) => {
   const rate = usdRate || 3.61
+  const today = new Date()
+  const mKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
   return rentalIncome.reduce((s, r) => {
-    if (r.currency === 'USD') return s + (r.usdAmount || 0) * rate
-    return s + (r.amount || 0)
+    if (r.currency === 'USD') {
+      const amt = (r.monthlyAmounts && r.monthlyAmounts[mKey] != null) ? r.monthlyAmounts[mKey] : (r.usdAmount || 0)
+      return s + amt * rate
+    }
+    const amt = (r.monthlyAmounts && r.monthlyAmounts[mKey] != null) ? r.monthlyAmounts[mKey] : (r.amount || 0)
+    return s + amt
   }, 0)
 }
 
@@ -197,7 +235,10 @@ export const getMonthEvents = (year, month, loans, expenses, rentalIncome, futur
 
     const isUSD     = l.currency === 'USD'
     const extrasAmt = (l.extras || []).reduce((s, x) => s + x.amount, 0)
-    const basePay   = (l.monthlyPayment || 0) + extrasAmt
+    // Use paymentSchedule if available — exact amount per month
+    const mKey      = `${year}-${String(month).padStart(2, '0')}`
+    const scheduled = (l.paymentSchedule || []).find(p => p.date && p.date.startsWith(mKey))
+    const basePay   = scheduled ? scheduled.amount : ((l.monthlyPayment || 0) + extrasAmt)
     const amt       = isUSD ? basePay * usdRate : basePay
     const ev        = { id: l.id, day: l.chargeDay, name: l.name, amount: -amt, type: 'loan', color: 'red' }
     if (isUSD) { ev.currency = 'USD'; ev.usdAmount = basePay }
@@ -277,6 +318,9 @@ export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, d
   const currentMonth = startFrom.getMonth() + 1
   const todayDay     = today.getDate()
 
+  // Track which income items already had payments subtracted (first visible occurrence only)
+  const paymentsApplied = new Set()
+
   // Iterate through every month within the range
   const addRecurring = (items, isIncome) => {
     items.forEach(item => {
@@ -299,13 +343,17 @@ export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, d
       const type  = isIncome ? 'rental' : (isLoan ? 'loan' : 'expense')
       const color = isIncome ? 'green' : 'red'
 
-      // Pre-compute end date for finite-duration loans/items
+      // Pre-compute start/end dates for finite-duration loans/items
+      let loanStartDate = null
       let loanEndDate = null
-      if (!isIncome && isLoan && item.startDate && item.durationMonths) {
+      if (!isIncome && isLoan && item.startDate) {
         const start = new Date(item.startDate)
         const firstPay = new Date(start.getFullYear(), start.getMonth() + 1, chargeDay)
         if ((firstPay - start) / 86400000 < 15) firstPay.setMonth(firstPay.getMonth() + 1)
-        loanEndDate = new Date(firstPay.getFullYear(), firstPay.getMonth() + item.durationMonths - 1, chargeDay)
+        loanStartDate = firstPay
+        if (item.durationMonths) {
+          loanEndDate = new Date(firstPay.getFullYear(), firstPay.getMonth() + item.durationMonths - 1, chargeDay)
+        }
       }
 
       // Walk month by month from current month until we pass the limit
@@ -316,16 +364,44 @@ export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, d
         const d = new Date(year, month, chargeDay)
         if (d > limit) break
         if (loanEndDate && d > loanEndDate) break
+        if (loanStartDate && d < loanStartDate) { month++; iteration++; continue }
         if (d >= startFrom) {
           const suffix = iteration === 0 ? '' : `_m${iteration}`
           let eventAmount = baseAmount
-          if (!isIncome && !isLoan && item.monthlyAmounts) {
-            const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-            if (item.monthlyAmounts[mKey] != null) eventAmount = -item.monthlyAmounts[mKey]
+          let monthlyOverride = false
+          const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+          // paymentSchedule takes highest priority — exact amount from amortization table
+          const scheduled = (item.paymentSchedule || []).find(p => p.date && p.date.startsWith(mKey))
+          if (scheduled) {
+            monthlyOverride = true
+            eventAmount = isIncome ? scheduled.amount : -scheduled.amount
+          } else if (item.monthlyAmounts) {
+            if (item.monthlyAmounts[mKey] != null) {
+              const ovr = item.monthlyAmounts[mKey]
+              monthlyOverride = true
+              if (isIncome) {
+                eventAmount = isUSD ? ovr * usdRate : ovr
+              } else {
+                eventAmount = isUSD ? -(ovr * usdRate) : -ovr
+              }
+            }
+          }
+          // For income with partial payments — subtract received amounts (first visible occurrence only)
+          let eventUsdAmount = monthlyOverride && isUSD ? item.monthlyAmounts[`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`] : usdUnitAmount
+          if (isIncome && !paymentsApplied.has(item.id) && (item.payments || []).length > 0) {
+            paymentsApplied.add(item.id)
+            const received = item.payments.reduce((s, p) => s + p.amount, 0)
+            if (isUSD) {
+              const remaining = (item.usdAmount || 0) - received
+              eventAmount = remaining * usdRate
+              eventUsdAmount = remaining
+            } else {
+              eventAmount = (item.amount || 0) - received
+            }
           }
           const event = { id: item.id + suffix, name: item.name, amount: eventAmount, date: d, type, color }
           if (isUSD) {
-            event.usdAmount = usdUnitAmount
+            event.usdAmount = eventUsdAmount
             event.currency = 'USD'
             if (item.usdGross)      event.usdGross      = item.usdGross
             if (item.usdDeductions) event.usdDeductions = item.usdDeductions
@@ -338,6 +414,7 @@ export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, d
           if (item.paidByFriend)    event.paidByFriend     = true
           if (item.effectiveAmount != null) event.effectiveAmount = item.effectiveAmount
           if (item.debtId)          event.debtId          = item.debtId
+          if (item.category)        event.category        = item.category
           events.push(event)
         }
         month++
@@ -356,7 +433,7 @@ export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, d
     if (f.status === 'pending' && f.expectedDate) {
       const d = new Date(f.expectedDate)
       d.setHours(0, 0, 0, 0)
-      if (d >= today && d <= limit) {
+      if (d >= startFrom && d <= limit) {
         const isPayment = f.isPayment || (f.amount || 0) < 0
         const ev = { id: f.id, name: f.name, amount: f.amount || 0, date: d, type: isPayment ? 'expense' : 'future', color: isPayment ? 'red' : 'blue' }
         if (f.accountId) ev.accountId = f.accountId

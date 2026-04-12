@@ -2,6 +2,7 @@ import { useState } from 'react'
 import useStore from '../store/useStore'
 import { getMonthEvents } from '../utils/calculations'
 import { formatILS } from '../utils/formatters'
+import Backdrop from '../components/Backdrop'
 
 const MONTHS_HE = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר']
 
@@ -43,9 +44,9 @@ export default function CalendarPage() {
     return acc
   }, {})
 
-  // Separate ILS and USD totals — exclude paidByFriend (אליעזר) from totals
-  const ilsEvents  = events.filter(e => !e.currency && !e.paidByFriend)
-  const usdEvents  = events.filter(e => e.currency === 'USD' && !e.paidByFriend)
+  // Separate ILS and USD totals — include paidByFriend (אליעזר) in totals
+  const ilsEvents  = events.filter(e => !e.currency)
+  const usdEvents  = events.filter(e => e.currency === 'USD')
   const ilsOut     = ilsEvents.filter(e => e.amount < 0).reduce((s, e) => s + e.amount, 0)
   const ilsIn      = ilsEvents.filter(e => e.amount > 0).reduce((s, e) => s + e.amount, 0)
   const usdOut     = usdEvents.filter(e => e.amount < 0).reduce((s, e) => s + (e.usdAmount || 0), 0)
@@ -154,6 +155,7 @@ export default function CalendarPage() {
                              e.type === 'expense' ? 'הוצאה קבועה' :
                              e.type === 'rental'  ? 'הכנסת שכירות' :
                              'הכנסה צפויה'}
+                            {e.paidByFriend ? ' · משלם אליעזר' : ''}
                             {e.note ? ` · ${e.note}` : ''}
                           </p>
                         </div>
@@ -189,13 +191,15 @@ export default function CalendarPage() {
         const isUSD = detail.endsWith('usd')
         const isIn  = detail.startsWith('in')
         const filtered = events.filter(e =>
-          (e.currency === 'USD') === isUSD && (isIn ? e.amount >= 0 : e.amount < 0) && !e.paidByFriend
+          (e.currency === 'USD') === isUSD && (isIn ? e.amount >= 0 : e.amount < 0)
         )
         const title = `${isIn ? 'נכנס' : 'יוצא'} ${isUSD ? '$' : '₪'} — ${MONTHS_HE[month-1]} ${year}`
         return (
-          <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setDetail(null)}>
-            <div className="absolute inset-0 bg-black bg-opacity-30" />
-            <div className="relative bg-white rounded-t-2xl shadow-xl max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <Backdrop
+            className="fixed inset-0 z-50 flex flex-col justify-end bg-black bg-opacity-30"
+            onClose={() => setDetail(null)}
+          >
+            <div className="relative bg-white rounded-t-2xl shadow-xl max-h-[70vh] flex flex-col">
               <div className={`flex items-center justify-between px-4 py-3 rounded-t-2xl ${isIn ? 'bg-green-500' : 'bg-red-500'}`}>
                 <h3 className="font-bold text-white text-sm">{title}</h3>
                 <button onClick={() => setDetail(null)} className="text-white text-xl leading-none">×</button>
@@ -233,7 +237,7 @@ export default function CalendarPage() {
                 </p>
               </div>
             </div>
-          </div>
+          </Backdrop>
         )
       })()}
     </div>

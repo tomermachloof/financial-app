@@ -10,6 +10,30 @@ import {
   initialDebts,
 } from '../data/initialData'
 
+// ── המרה בין סכום-בסיס של פרויקט לבין סכום אפקטיבי שנכנס לחשבון הבנק ──
+// המתגים במטה הפרויקט: agentCommission (15%), addVat (18%)
+// סכום שיורד לבנק = בסיס × (1 - 0.15 אם יש סוכן) × (1 + 0.18 אם יש מע״מ)
+// תיאור במילים: הבסיס הוא מה שהפרויקט באמת "שווה". הבנק רואה את הסכום אחרי
+// שהסוכן לוקח את חלקו ואחרי שמע״מ נוסף על היתרה.
+const getFactors = (item) => {
+  const isUSD = item?.currency === 'USD'
+  if (isUSD) return { commission: 1, vat: 1 }
+  return {
+    commission: item?.agentCommission ? 0.85 : 1,
+    vat:        item?.addVat          ? 1.18 : 1,
+  }
+}
+// baseToBank: ממיר סכום שמופיע בבסיס הפרויקט לסכום שבפועל יגיע לבנק
+const baseToBank = (item, base) => {
+  const { commission, vat } = getFactors(item)
+  return Math.round(base * commission * vat * 100) / 100
+}
+// bankToBase: ממיר סכום שהגיע לבנק לחלק ה"בסיס" שלו (שמקזז את יתרת הפרויקט)
+const bankToBase = (item, bank) => {
+  const { commission, vat } = getFactors(item)
+  return Math.round((bank / commission / vat) * 100) / 100
+}
+
 const useStore = create(
   persist(
     (set) => ({
@@ -167,8 +191,9 @@ const useStore = create(
         set(s => {
           const item = s.futureIncome.find(f => f.id === id)
           if (!item) return s
-          const gross = item.amount || 0
-          const amt   = item.agentCommission ? Math.round(gross * 0.85) : gross
+          const base = item.amount || 0
+          // הסכום שבפועל מגיע לחשבון הבנק: בסיס × (1-עמלה) × (1+מעמ)
+          const amt  = baseToBank(item, base)
           const accId = accountId || item.accountId || null
           // Guard: if Dashboard already confirmed this item, skip the account credit
           const alreadyConfirmed = (s.confirmedEvents || []).some(e => {
@@ -197,19 +222,30 @@ const useStore = create(
           )
           return { futureIncome: newFI, accounts }
         }),
-      // Partial payments on futureIncome — push a payment to payments[] and credit account
-      addIncomePayment: (incomeId, amount, accountId) =>
+      // תשלום חלקי על פרויקט הכנסה —
+      // הסכום שמועבר ל-addIncomePayment הוא הסכום שבאמת הגיע לחשבון הבנק
+      // (ברוטו, עם מע״מ ואחרי עמלת סוכן). המערכת גוזרת ממנו את חלק ה"בסיס"
+      // שיקוזז מיתרת הפרויקט. הפרויקט עצמו מתנהל בבסיס.
+      addIncomePayment: (incomeId, bankAmount, accountId) =>
         set(s => {
           const item = s.futureIncome.find(f => f.id === incomeId)
-          if (!item || !amount) return s
-          const payment = { id: 'pay' + Date.now(), amount, accountId, date: new Date().toISOString() }
+          if (!item || !bankAmount) return s
+          const isUSD = item.currency === 'USD'
+          // עבור דולרים או פרויקטים בלי מתגים — הבסיס שווה לסכום שנכנס
+          const baseAmount = isUSD ? bankAmount : bankToBase(item, bankAmount)
+          const payment = {
+            id: 'pay' + Date.now(),
+            amount: baseAmount,   // זה מה שמקזז את יתרת הפרויקט
+            bankAmount,           // זה מה שבאמת נכנס לחשבון
+            accountId,
+            date: new Date().toISOString(),
+          }
           const newFI = s.futureIncome.map(f => f.id === incomeId ? { ...f, payments: [...(f.payments || []), payment] } : f)
           if (!accountId) return { futureIncome: newFI }
-          const isUSD = item.currency === 'USD'
           const accounts = s.accounts.map(a => {
             if (a.id !== accountId) return a
-            if (isUSD) return { ...a, usdBalance: (a.usdBalance || 0) + amount }
-            return { ...a, balance: (a.balance || 0) + amount }
+            if (isUSD) return { ...a, usdBalance: (a.usdBalance || 0) + bankAmount }
+            return { ...a, balance: (a.balance || 0) + bankAmount }
           })
           return { futureIncome: newFI, accounts }
         }),
@@ -225,13 +261,16 @@ const useStore = create(
           if (isConfirmed) return s
           const payment = (item.payments || []).find(p => p.id === paymentId)
           if (!payment) return s
+          // לביטול הזיכוי — להשתמש בסכום שבאמת נכנס לחשבון. תשלומים ישנים
+          // שאין להם bankAmount נזקפים לפי amount (שהיה גם הסכום שזוכה אז).
+          const creditReversal = payment.bankAmount != null ? payment.bankAmount : payment.amount
           const newFI = s.futureIncome.map(f => f.id === incomeId ? { ...f, payments: (f.payments || []).filter(p => p.id !== paymentId) } : f)
           if (!payment.accountId) return { futureIncome: newFI }
           const isUSD = item.currency === 'USD'
           const accounts = s.accounts.map(a => {
             if (a.id !== payment.accountId) return a
-            if (isUSD) return { ...a, usdBalance: (a.usdBalance || 0) - payment.amount }
-            return { ...a, balance: (a.balance || 0) - payment.amount }
+            if (isUSD) return { ...a, usdBalance: (a.usdBalance || 0) - creditReversal }
+            return { ...a, balance: (a.balance || 0) - creditReversal }
           })
           return { futureIncome: newFI, accounts }
         }),

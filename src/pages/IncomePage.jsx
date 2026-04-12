@@ -4,6 +4,8 @@ import useStore from '../store/useStore'
 import Modal, { Field, Input, Select, Textarea, SaveButton, DeleteButton } from '../components/Modal'
 import TimePicker from '../components/TimePicker'
 import Backdrop from '../components/Backdrop'
+import PartialPaymentModal from '../components/PartialPaymentModal'
+import { exportIncomeReport } from '../lib/exportIncomeReport'
 import { formatILS, formatDate, daysUntil, urgencyClass, urgencyLabel } from '../utils/formatters'
 
 // ── Helpers: time and amount calculations ────────────────────────────
@@ -137,6 +139,8 @@ const computeRehearsalAmount = (hours, rate, pct12, pct3plus) => {
 const EMPTY_INCOME = {
   name: '', amount: '', expectedDate: '', notes: '', accountId: '',
   sessions: [], agentCommission: false, addVat: false, invoiceSent: false, invoiceFile: null, invoiceFileName: null,
+  // בעלים של הפרויקט — 'tomer' או 'yael'. ברירת מחדל לפרויקט חדש: תומר
+  owner: 'tomer',
   // ── Project rate defaults ──
   photoDayRate: '',
   rehearsalPct12: 15,
@@ -207,6 +211,7 @@ export default function IncomePage() {
     markIncomeReceived, markIncomePending,
     addWorkSession, deleteWorkSession,
     bubbleIncomeToTop,
+    removeIncomePayment, confirmedEvents,
   } = useStore()
 
   const ilsAccounts = accounts.filter(a => a.currency !== 'USD')
@@ -218,18 +223,44 @@ export default function IncomePage() {
   const [modal,        setModal]      = useState(null)
   const [form,         setForm]       = useState(EMPTY_INCOME)
   const [filter,       setFilter]     = useState('pending')
+  const [ownerFilter,  setOwnerFilter] = useState('all') // 'all' | 'tomer' | 'yael'
+  // חלון ייצוא לסוכנות — שומר את תאריך החיתוך הנבחר (ברירת מחדל: היום)
+  const [exportCutoff, setExportCutoff] = useState('')
+  const [showExport,   setShowExport]   = useState(false)
   const [workModal,    setWorkModal]  = useState(null) // { item }
   const [sessForm,     setSessForm]   = useState(EMPTY_SESSION)
   const [receiveModal, setReceiveModal] = useState(null) // { item }
   const [receiveAccId, setReceiveAccId] = useState('')
   const [newSess,      setNewSess]      = useState(EMPTY_NEW_SESS)
+  const [showPartialModal, setShowPartialModal] = useState(false)
+
+  // ── Helper: files תאימות לאחור לשדה invoiceFile הישן ──
+  const getFilesFromItem = (it) => {
+    if (!it) return []
+    if (Array.isArray(it.files) && it.files.length > 0) return it.files
+    if (it.invoiceFile) {
+      return [{
+        id: 'legacy_inv',
+        type: 'invoice',
+        file: it.invoiceFile,
+        fileName: it.invoiceFileName || 'חשבונית',
+        uploadedAt: null,
+      }]
+    }
+    return []
+  }
 
   const closeProject  = (id, e) => { e.stopPropagation(); updateFutureIncome(id, { isWorkLog: false }) }
   const reopenProject = (id, e) => { e.stopPropagation(); updateFutureIncome(id, { isWorkLog: true  }) }
 
-  const pending  = futureIncome.filter(f => f.status === 'pending')
-  const received = futureIncome.filter(f => f.status === 'received')
-  const visible  = filter === 'pending' ? pending : filter === 'received' ? received : futureIncome
+  // סינון לפי בעלים: 'all' מציג הכל, אחרת רק של הבעלים שנבחר
+  const ownerMatches = (f) => {
+    if (ownerFilter === 'all') return true
+    return (f.owner || '') === ownerFilter
+  }
+  const pending  = futureIncome.filter(f => f.status === 'pending'  && ownerMatches(f))
+  const received = futureIncome.filter(f => f.status === 'received' && ownerMatches(f))
+  const visible  = filter === 'pending' ? pending : filter === 'received' ? received : futureIncome.filter(ownerMatches)
 
   const totalPending  = pending.reduce((s, f)  => s + (f.amount || 0), 0)
   const totalReceived = received.reduce((s, f) => s + (f.amount || 0), 0)
@@ -245,6 +276,8 @@ export default function IncomePage() {
       ...item,
       expectedDate: item.expectedDate || '',
       sessions,
+      // בעלים — לפרויקטים קיימים ללא שיוך נשאר ריק עד בחירה ידנית
+      owner: item.owner || '',
       // Ensure rate fields exist even on old income items
       photoDayRate: item.photoDayRate ?? '',
       rehearsalPct12: item.rehearsalPct12 ?? 15,
@@ -285,9 +318,11 @@ export default function IncomePage() {
     return null
   }
 
-  const addSessToForm = () => {
+  // בונה אובייקט רישום מתוך ערכי הטופס הנוכחיים. מחזיר null אם אין מספיק נתונים.
+  // אם קיבל editingId — משתמש בו כ-id של הרישום (לשמירה על מיקום ברשימה).
+  const buildSessionFromNewSess = (editingId = null) => {
     const t = newSess.type
-    let sess = null
+    const id = editingId || ('ws' + Date.now())
 
     if (t === 'יום צילום') {
       const shootH = getEffectiveWorkHours()
@@ -299,10 +334,9 @@ export default function IncomePage() {
       const tiers = form.overtimeTiers || DEFAULT_OT_TIERS
       const calc = computePhotoDayAmount(hoursForCalc, rate, tiers)
       const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : calc.total
-      if (finalAmt <= 0) return
-
-      sess = {
-        id: 'ws' + Date.now(),
+      if (finalAmt <= 0) return null
+      return {
+        id,
         type: t,
         date: newSess.date || null,
         pickupTime: newSess.pickupTime || null,
@@ -320,15 +354,15 @@ export default function IncomePage() {
         manualAmount: newSess.manualMode ? (Number(newSess.manualAmount) || 0) : null,
         amount: finalAmt,
       }
-    } else if (t === 'חזרות' || t === 'מדידות') {
+    }
+    if (t === 'חזרות' || t === 'מדידות') {
       const h = Number(newSess.hours) || 0
       const rate = Number(form.photoDayRate) || 0
       const calc = computeRehearsalAmount(h, rate, form.rehearsalPct12, form.rehearsalPct3plus)
       const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : calc.total
-      if (finalAmt <= 0) return
-
-      sess = {
-        id: 'ws' + Date.now(),
+      if (finalAmt <= 0) return null
+      return {
+        id,
         type: t,
         date: newSess.date || null,
         hours: roundUpQuarter(h),
@@ -339,36 +373,98 @@ export default function IncomePage() {
         manualAmount: newSess.manualMode ? (Number(newSess.manualAmount) || 0) : null,
         amount: finalAmt,
       }
-    } else {
-      // 'אחר' — keep legacy quantity × rate behavior
-      if (!newSess.rate) return
-      const qty  = Number(newSess.quantity) || 1
-      const rate = Number(newSess.rate)
-      sess = {
-        id: 'ws' + Date.now(),
-        type: t,
-        date: newSess.date || null,
-        quantity: qty,
-        ratePerUnit: rate,
-        amount: qty * rate,
-      }
     }
+    // 'אחר' — לפי כמות × תעריף
+    if (!newSess.rate) return null
+    const qty  = Number(newSess.quantity) || 1
+    const rate = Number(newSess.rate)
+    return {
+      id,
+      type: t,
+      date: newSess.date || null,
+      quantity: qty,
+      ratePerUnit: rate,
+      amount: qty * rate,
+    }
+  }
 
+  // מזהה של רישום שנמצא כרגע בעריכה — אם לא ריק, הוא יחליף את הישן במקומו
+  const [editingSessId, setEditingSessId] = useState(null)
+
+  const addSessToForm = () => {
+    const sess = buildSessionFromNewSess(editingSessId)
     if (!sess) return
-    const sessions = [...(form.sessions || []), sess]
-    setForm(f => ({ ...f, sessions, amount: sessions.reduce((s, w) => s + (w.amount || 0), 0) }))
+    const base = form.sessions || []
+    const sessions = editingSessId
+      ? base.map(w => w.id === editingSessId ? sess : w)
+      : [...base, sess]
+    const totalAmount = sessions.reduce((s, w) => s + (w.amount || 0), 0)
+    setForm(f => ({ ...f, sessions, amount: totalAmount }))
+    // שמירה מיידית לענן במצב עריכה — שלא נאבד רישום אם הדף ייסגר/ייטען מחדש
+    if (modal !== 'add' && modal?.item) {
+      updateFutureIncome(modal.item.id, { sessions, amount: totalAmount })
+    }
+    setNewSess(EMPTY_NEW_SESS)
+    setEditingSessId(null)
+  }
+
+  // טוען רישום קיים לטופס כדי לערוך אותו. שומר את המזהה כדי להחליפו בשמירה.
+  const startEditSess = (ws) => {
+    setEditingSessId(ws.id)
+    setNewSess({
+      type: ws.type || 'יום צילום',
+      date: ws.date || '',
+      pickupTime: ws.pickupTime || '',
+      shootStart: ws.shootStart || '',
+      shootEnd:   ws.shootEnd   || '',
+      returnTime: ws.returnTime || '',
+      workHours:  ws.workHours != null ? String(ws.workHours) : '',
+      hours:      ws.hours     != null ? String(ws.hours)     : '',
+      quantity:   ws.quantity  != null ? String(ws.quantity)  : '1',
+      rate:       ws.ratePerUnit != null ? String(ws.ratePerUnit) : '',
+      manualMode: !!ws.manualMode,
+      manualAmount: ws.manualAmount != null ? String(ws.manualAmount) : '',
+      useTravelForCalc: !!ws.useTravelForCalc,
+    })
+  }
+
+  const cancelEditSess = () => {
+    setEditingSessId(null)
     setNewSess(EMPTY_NEW_SESS)
   }
   const removeSessFromForm = (id) => {
     const sessions = (form.sessions || []).filter(w => w.id !== id)
-    setForm(f => ({ ...f, sessions, amount: sessions.reduce((s, w) => s + (w.amount || 0), 0) }))
+    const totalAmount = sessions.reduce((s, w) => s + (w.amount || 0), 0)
+    setForm(f => ({ ...f, sessions, amount: totalAmount }))
+    // שמירה מיידית לענן במצב עריכה
+    if (modal !== 'add' && modal?.item) {
+      updateFutureIncome(modal.item.id, { sessions, amount: totalAmount })
+    }
+    // אם היינו בעריכה של הרישום שנמחק — לצאת ממצב עריכה
+    if (editingSessId === id) {
+      setEditingSessId(null)
+      setNewSess(EMPTY_NEW_SESS)
+    }
   }
-  const closeModal = () => setModal(null)
+  const closeModal = () => { setModal(null); setEditingSessId(null); setNewSess(EMPTY_NEW_SESS) }
 
   const save = () => {
+    // אם יש רישום תקף בטופס הרישום החדש שלא נלחץ "+ הוסף רישום" — להוסיפו אוטומטית
+    let sessions = form.sessions || []
+    const pending = buildSessionFromNewSess(editingSessId)
+    if (pending) {
+      sessions = editingSessId
+        ? sessions.map(w => w.id === editingSessId ? pending : w)
+        : [...sessions, pending]
+    }
+    const totalFromSessions = sessions.reduce((s, w) => s + (w.amount || 0), 0)
+    const finalAmount = sessions.length > 0
+      ? totalFromSessions
+      : (form.amount === '' ? null : Number(form.amount))
     const data = {
       ...form,
-      amount:       form.amount === '' ? null : Number(form.amount),
+      sessions,
+      amount:       finalAmount,
       expectedDate: form.expectedDate || null,
     }
     if (modal === 'add') addFutureIncome(data)
@@ -440,6 +536,29 @@ export default function IncomePage() {
             </button>
           ))}
         </div>
+
+        {/* ── סינון לפי בעלים של הפרויקט ── */}
+        <div className="flex items-center gap-1.5 mt-3 pt-2 border-t border-dashed border-gray-200">
+          <span className="text-[10px] text-gray-400 font-medium ml-1">בעלים:</span>
+          {[['tomer','תומר','indigo'],['yael','יעל','pink'],['all','הכל','gray']].map(([val, label, color]) => {
+            const active = ownerFilter === val
+            const activeCls = color === 'indigo'
+              ? 'bg-indigo-100 text-indigo-700 border-indigo-300'
+              : color === 'pink'
+                ? 'bg-pink-100 text-pink-700 border-pink-300'
+                : 'bg-gray-200 text-gray-700 border-gray-300'
+            return (
+              <button
+                key={val}
+                onClick={() => setOwnerFilter(val)}
+                className={`px-3 py-1 text-[11px] font-semibold rounded-full border transition-colors
+                  ${active ? activeCls : 'bg-white text-gray-400 border-gray-200'}`}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       <div className="px-4 pt-4 space-y-3">
@@ -465,8 +584,28 @@ export default function IncomePage() {
 
       {/* ── Edit / Add modal ── */}
       {modal && (
-        <Modal title={modal === 'add' ? 'הכנסה חדשה' : 'עריכת הכנסה'} onClose={closeModal}>
+        <Modal title={modal === 'add' ? 'הכנסה חדשה' : 'עריכת הכנסה'} onClose={closeModal} onSave={save}>
           <Field label="שם"><Input value={form.name} onChange={v => set('name', v)} placeholder="שם ההכנסה" /></Field>
+          {/* ── בעלים של הפרויקט ── */}
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-gray-500">בעלים של הפרויקט</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => set('owner', 'tomer')}
+                className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors ${form.owner === 'tomer' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400'}`}
+              >
+                תומר
+              </button>
+              <button
+                type="button"
+                onClick={() => set('owner', 'yael')}
+                className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors ${form.owner === 'yael' ? 'bg-pink-500 text-white' : 'bg-gray-100 text-gray-400'}`}
+              >
+                יעל
+              </button>
+            </div>
+          </div>
           <Field label="סכום (₪)">
             <div className="flex flex-col gap-1">
               <Input type="number" value={form.amount} onChange={v => set('amount', v)} placeholder="0" />
@@ -507,9 +646,9 @@ export default function IncomePage() {
             </button>
             <span className="text-xs text-gray-500">מע״מ 18%</span>
           </div>
-          {/* ── Invoice status ── */}
+          {/* ── דגל סטטוס חשבונית ── */}
           <div className="space-y-2">
-            <p className="text-xs font-semibold text-gray-500">חשבונית</p>
+            <p className="text-xs font-semibold text-gray-500">סטטוס חשבונית</p>
             <div className="flex gap-2">
               <button
                 type="button"
@@ -526,35 +665,152 @@ export default function IncomePage() {
                 ✓ יצאה חשבונית
               </button>
             </div>
-            {form.invoiceSent && (
-              form.invoiceFile ? (
-                <div className="flex items-center justify-between bg-green-50 rounded-xl px-3 py-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-base">📄</span>
-                    <a href={form.invoiceFile} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline truncate">{form.invoiceFileName}</a>
-                  </div>
-                  <button type="button" onClick={() => { set('invoiceFile', null); set('invoiceFileName', null) }} className="text-red-400 text-xs px-1.5 hover:bg-red-50 rounded">✕</button>
-                </div>
-              ) : (
-                <label className="flex items-center justify-center gap-2 w-full border-2 border-dashed border-green-200 rounded-xl py-3 cursor-pointer hover:bg-green-50 transition-colors">
-                  <span className="text-sm">📎</span>
-                  <span className="text-xs text-green-600 font-medium">העלה חשבונית</span>
-                  <input
-                    type="file"
-                    accept="image/*,application/pdf"
-                    className="hidden"
-                    onChange={e => {
-                      const file = e.target.files?.[0]
-                      if (!file) return
-                      const reader = new FileReader()
-                      reader.onload = ev => { set('invoiceFile', ev.target.result); set('invoiceFileName', file.name) }
-                      reader.readAsDataURL(file)
-                    }}
-                  />
-                </label>
-              )
-            )}
           </div>
+
+          {/* ── קבצים ותשלומים (רק במצב עריכה — לא בהוספה) ── */}
+          {modal !== 'add' && modal?.item && (() => {
+            const liveItem = futureIncome.find(f => f.id === modal.item.id) || modal.item
+            const files    = getFilesFromItem(liveItem)
+            const payments = liveItem.payments || []
+            const totalAmount   = Number(form.amount) || liveItem.amount || 0
+            const totalReceived = payments.reduce((s, p) => s + p.amount, 0)
+            const remaining     = totalAmount - totalReceived
+
+            const addFile = (type) => (e) => {
+              const file = e.target.files?.[0]
+              if (!file) return
+              const reader = new FileReader()
+              reader.onload = ev => {
+                const newFile = {
+                  id: 'f' + Date.now(),
+                  type,
+                  file: ev.target.result,
+                  fileName: file.name,
+                  uploadedAt: new Date().toISOString(),
+                }
+                updateFutureIncome(liveItem.id, { files: [...files, newFile] })
+              }
+              reader.readAsDataURL(file)
+              e.target.value = ''
+            }
+
+            const removeFile = (fileId) => {
+              const newFiles = files.filter(f => f.id !== fileId)
+              const updates = { files: newFiles }
+              if (fileId === 'legacy_inv') {
+                updates.invoiceFile = null
+                updates.invoiceFileName = null
+              }
+              updateFutureIncome(liveItem.id, updates)
+            }
+
+            return (
+              <>
+                {/* ── קבצים מצורפים ── */}
+                <div className="border-t border-gray-100 pt-3 mt-3 space-y-2">
+                  <p className="text-xs font-semibold text-gray-500">קבצים מצורפים</p>
+
+                  {files.length > 0 && (
+                    <div className="divide-y divide-gray-100 rounded-xl border border-gray-100 overflow-hidden">
+                      {files.map(f => {
+                        const isInvoice = f.type === 'invoice'
+                        return (
+                          <div key={f.id} className="flex items-center justify-between px-3 py-2 bg-white">
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${isInvoice ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                                {isInvoice ? 'חשבונית' : 'פירוט תשלום'}
+                              </span>
+                              <a href={f.file} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline truncate">
+                                {f.fileName}
+                              </a>
+                              {f.uploadedAt && <span className="text-[10px] text-gray-400 shrink-0">{formatDate(f.uploadedAt)}</span>}
+                            </div>
+                            <button type="button" onClick={() => removeFile(f.id)} className="text-red-400 text-xs px-1.5 hover:bg-red-50 rounded shrink-0">✕</button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex items-center justify-center gap-1 border-2 border-dashed border-blue-200 rounded-xl py-2.5 cursor-pointer hover:bg-blue-50 transition-colors">
+                      <span className="text-sm">📎</span>
+                      <span className="text-xs text-blue-600 font-medium">+ חשבונית</span>
+                      <input type="file" accept="image/*,application/pdf" className="hidden" onChange={addFile('invoice')} />
+                    </label>
+                    <label className="flex items-center justify-center gap-1 border-2 border-dashed border-green-200 rounded-xl py-2.5 cursor-pointer hover:bg-green-50 transition-colors">
+                      <span className="text-sm">📎</span>
+                      <span className="text-xs text-green-600 font-medium">+ פירוט תשלום</span>
+                      <input type="file" accept="image/*,application/pdf" className="hidden" onChange={addFile('payment')} />
+                    </label>
+                  </div>
+                </div>
+
+                {/* ── תשלומים שהתקבלו ── */}
+                <div className="border-t border-gray-100 pt-3 mt-3 space-y-2">
+                  <p className="text-xs font-semibold text-gray-500">תשלומים שהתקבלו</p>
+
+                  <div className="bg-gray-50 rounded-xl px-3 py-2 space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">סכום כולל</span>
+                      <span className="font-bold text-gray-800">{formatILS(totalAmount)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">התקבל עד כה</span>
+                      <span className="font-semibold text-green-600">{formatILS(totalReceived)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs border-t border-gray-200 pt-1">
+                      <span className="text-gray-500">נותר</span>
+                      <span className={`font-bold ${remaining > 0 ? 'text-orange-600' : 'text-green-600'}`}>{formatILS(remaining)}</span>
+                    </div>
+                  </div>
+
+                  {payments.length > 0 && (() => {
+                    const itemLocked = (confirmedEvents || []).some(e => {
+                      const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
+                      return bare === liveItem.id
+                    })
+                    const handleRemovePayment = (paymentId) => {
+                      if (itemLocked) {
+                        alert('הפריט כבר אושר בלוח הבית. בטל אישור לפני מחיקת תשלום חלקי.')
+                        return
+                      }
+                      removeIncomePayment(liveItem.id, paymentId)
+                    }
+                    return (
+                      <div className="space-y-1">
+                        {payments.map(p => {
+                          const acc = accounts.find(a => a.id === p.accountId)
+                          const shownBank = p.bankAmount != null ? p.bankAmount : p.amount
+                          return (
+                            <div key={p.id} className="flex items-center justify-between bg-green-50 rounded-xl px-3 py-1.5 text-xs">
+                              <div className="flex-1 min-w-0">
+                                <span className="font-semibold text-green-700">{formatILS(shownBank)}</span>
+                                <span className="text-gray-400 mr-2">{formatDate(p.date)}{acc ? ' · ' + acc.name : ''}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleRemovePayment(p.id) }}
+                                disabled={itemLocked}
+                                title={itemLocked ? 'בטל אישור בדשבורד לפני מחיקה' : 'בטל תשלום'}
+                                className={`w-7 h-7 flex items-center justify-center text-sm font-bold rounded-full shrink-0 ${itemLocked ? 'text-gray-300 bg-gray-100 cursor-not-allowed' : 'text-red-500 bg-red-50 active:bg-red-200'}`}
+                                style={{ touchAction: 'manipulation' }}
+                              >✕</button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })()}
+
+                  <button type="button" onClick={() => setShowPartialModal(true)}
+                    className="w-full border-2 border-dashed border-orange-200 text-orange-600 text-xs font-semibold py-2.5 rounded-xl hover:bg-orange-50 transition-colors">
+                    + רשום תשלום שהתקבל
+                  </button>
+                </div>
+              </>
+            )
+          })()}
 
           <Field label="תאריך צפוי" hint="השאר ריק אם לא ידוע">
             <Input type="date" value={form.expectedDate} onChange={v => set('expectedDate', v)} />
@@ -634,23 +890,37 @@ export default function IncomePage() {
             {/* Existing sessions */}
             {(form.sessions || []).length > 0 && (
               <div className="divide-y divide-gray-100 rounded-xl border border-gray-100 overflow-hidden mb-2">
-                {(form.sessions || []).map(ws => (
-                  <div key={ws.id} className="flex items-center justify-between px-3 py-2 bg-white">
-                    <div>
-                      <p className="text-sm font-medium text-gray-700">{ws.type}</p>
-                      <p className="text-xs text-gray-400">
-                        {ws.date ? formatDate(ws.date) : 'ללא תאריך'} · {formatSessionDetail(ws)}
-                      </p>
-                      {ws.overtimeAmt > 0 && (
-                        <p className="text-xs text-orange-400">כולל שעות נוספות: {formatILS(ws.overtimeAmt)}</p>
-                      )}
+                {(form.sessions || []).map(ws => {
+                  const isBeingEdited = editingSessId === ws.id
+                  return (
+                    <div key={ws.id} className={`flex items-center justify-between px-3 py-2 ${isBeingEdited ? 'bg-indigo-50' : 'bg-white'}`}>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-gray-700">{ws.type}{isBeingEdited && <span className="text-[10px] text-indigo-600 mr-2">· בעריכה</span>}</p>
+                        <p className="text-xs text-gray-400">
+                          {ws.date ? formatDate(ws.date) : 'ללא תאריך'} · {formatSessionDetail(ws)}
+                        </p>
+                        {ws.overtimeAmt > 0 && (
+                          <p className="text-xs text-orange-400">כולל שעות נוספות: {formatILS(ws.overtimeAmt)}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-sm font-bold text-green-600 ml-1">{formatILS(ws.amount)}</span>
+                        <button
+                          type="button"
+                          onClick={() => startEditSess(ws)}
+                          title="ערוך רישום"
+                          className="w-7 h-7 flex items-center justify-center text-sm rounded-full text-indigo-500 bg-indigo-50 active:bg-indigo-200"
+                        >✎</button>
+                        <button
+                          type="button"
+                          onClick={() => removeSessFromForm(ws.id)}
+                          title="מחק רישום"
+                          className="w-7 h-7 flex items-center justify-center text-sm font-bold rounded-full text-red-500 bg-red-50 active:bg-red-200"
+                        >✕</button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-green-600">{formatILS(ws.amount)}</span>
-                      <button onClick={() => removeSessFromForm(ws.id)} className="text-red-400 text-xs px-1.5 hover:bg-red-50 rounded">✕</button>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
                 <div className="flex justify-between px-3 py-2 bg-green-50">
                   <span className="text-xs font-semibold text-green-700">סה״כ</span>
                   <span className="text-sm font-bold text-green-700">{formatILS((form.sessions || []).reduce((s, w) => s + (w.amount || 0), 0))}</span>
@@ -688,7 +958,7 @@ export default function IncomePage() {
                   <>
                     <div className="bg-white rounded-lg p-2 space-y-2">
                       <p className="text-xs text-gray-500 font-medium">שעות הצילום (לחישוב)</p>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-2 gap-2" dir="rtl">
                         <Field label="תחילת צילומים">
                           <TimePicker
                             value={newSess.shootStart}
@@ -705,7 +975,7 @@ export default function IncomePage() {
                         </Field>
                       </div>
                       <p className="text-xs text-gray-500 font-medium">שעות איסוף וחזור (אופציונלי)</p>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-2 gap-2" dir="rtl">
                         <Field label="שעת איסוף">
                           <TimePicker
                             value={newSess.pickupTime}
@@ -800,8 +1070,13 @@ export default function IncomePage() {
                     )}
 
                     <button onClick={addSessToForm} disabled={!canAdd} className="w-full bg-blue-600 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
-                      + הוסף רישום · {formatILS(finalAmt)}
+                      {editingSessId ? 'עדכן רישום · ' : '+ הוסף רישום · '}{formatILS(finalAmt)}
                     </button>
+                    {editingSessId && (
+                      <button onClick={cancelEditSess} className="w-full bg-gray-100 text-gray-600 text-xs font-semibold py-1.5 rounded-xl mt-1">
+                        ביטול עריכה
+                      </button>
+                    )}
                   </>
                 )
               })()}
@@ -861,8 +1136,13 @@ export default function IncomePage() {
                     )}
 
                     <button onClick={addSessToForm} disabled={!canAdd} className="w-full bg-blue-600 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
-                      + הוסף רישום · {formatILS(finalAmt)}
+                      {editingSessId ? 'עדכן רישום · ' : '+ הוסף רישום · '}{formatILS(finalAmt)}
                     </button>
+                    {editingSessId && (
+                      <button onClick={cancelEditSess} className="w-full bg-gray-100 text-gray-600 text-xs font-semibold py-1.5 rounded-xl mt-1">
+                        ביטול עריכה
+                      </button>
+                    )}
                   </>
                 )
               })()}
@@ -886,8 +1166,13 @@ export default function IncomePage() {
                       <div className="text-center text-xs text-green-600 font-semibold">סה״כ: {formatILS(total)}</div>
                     )}
                     <button onClick={addSessToForm} disabled={!newSess.rate} className="w-full bg-blue-600 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
-                      + הוסף רישום
+                      {editingSessId ? 'עדכן רישום' : '+ הוסף רישום'}
                     </button>
+                    {editingSessId && (
+                      <button onClick={cancelEditSess} className="w-full bg-gray-100 text-gray-600 text-xs font-semibold py-1.5 rounded-xl mt-1">
+                        ביטול עריכה
+                      </button>
+                    )}
                   </>
                 )
               })()}
@@ -895,8 +1180,81 @@ export default function IncomePage() {
           </div>
 
           <SaveButton onClick={save} />
+          {modal !== 'add' && (
+            <button
+              type="button"
+              onClick={() => {
+                const today = new Date().toISOString().slice(0, 10)
+                setExportCutoff(today)
+                setShowExport(true)
+              }}
+              className="w-full bg-indigo-50 text-indigo-700 text-sm font-semibold py-3 rounded-xl mt-2 active:bg-indigo-100"
+            >
+              📄 ייצא דיווח לסוכנות
+            </button>
+          )}
           {modal !== 'add' && <DeleteButton onClick={remove} />}
         </Modal>
+      )}
+
+      {/* ── חלון ייצוא דיווח לסוכנות ── */}
+      {showExport && modal?.item && (
+        <Modal
+          title="ייצוא דיווח לסוכנות"
+          onClose={() => setShowExport(false)}
+          onSave={() => {
+            const liveItem = futureIncome.find(f => f.id === modal.item.id) || modal.item
+            // לאסוף את הרישומים הנוכחיים מהטופס + רישום ממתין בטופס הרישום החדש (אם יש),
+            // כך שגם רישומים שטרם נשמרו יופיעו בדיווח.
+            let mergedSessions = form.sessions || liveItem.sessions || []
+            const pending = buildSessionFromNewSess(editingSessId)
+            if (pending) {
+              mergedSessions = editingSessId
+                ? mergedSessions.map(w => w.id === editingSessId ? pending : w)
+                : [...mergedSessions, pending]
+            }
+            exportIncomeReport(liveItem, exportCutoff || new Date().toISOString().slice(0, 10), { overrideSessions: mergedSessions })
+            setShowExport(false)
+          }}
+        >
+          <p className="text-xs text-gray-500 mb-2">
+            ייווצר דיווח המכיל את כל ימי העבודה שתאריכם עד וכולל התאריך שנבחר.
+          </p>
+          <Field label="עד תאריך">
+            <Input
+              type="date"
+              value={exportCutoff}
+              onChange={v => setExportCutoff(v)}
+            />
+          </Field>
+          <div className="bg-gray-50 rounded-xl px-3 py-2 text-xs text-gray-500 space-y-0.5">
+            <p>• הדיווח יוצג בחלון חדש עם אפשרות הדפסה / שמירה כ-PDF</p>
+            <p>• הסכום מוצג גולמי — ללא עמלת סוכן וללא מע״מ</p>
+            <p>• מופיעה הערה: "הסכום הנ״ל לפני מע״מ"</p>
+          </div>
+          <SaveButton onClick={() => {
+            const liveItem = futureIncome.find(f => f.id === modal.item.id) || modal.item
+            // לאסוף את הרישומים הנוכחיים מהטופס + רישום ממתין בטופס הרישום החדש (אם יש),
+            // כך שגם רישומים שטרם נשמרו יופיעו בדיווח.
+            let mergedSessions = form.sessions || liveItem.sessions || []
+            const pending = buildSessionFromNewSess(editingSessId)
+            if (pending) {
+              mergedSessions = editingSessId
+                ? mergedSessions.map(w => w.id === editingSessId ? pending : w)
+                : [...mergedSessions, pending]
+            }
+            exportIncomeReport(liveItem, exportCutoff || new Date().toISOString().slice(0, 10), { overrideSessions: mergedSessions })
+            setShowExport(false)
+          }} label="צור דיווח" />
+        </Modal>
+      )}
+
+      {/* ── חלון תשלום חלקי — מוצג מעל חלון העריכה ── */}
+      {showPartialModal && modal?.item && (
+        <PartialPaymentModal
+          item={futureIncome.find(f => f.id === modal.item.id) || modal.item}
+          onClose={() => setShowPartialModal(false)}
+        />
       )}
 
       {/* ── Receive: account picker ── */}
@@ -1044,6 +1402,12 @@ function IncomeCard({ item, onEdit, onReceive, onUndo, onWorkLog, onClose, onReo
               ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">📄 חשבונית</span>
               : <span className="text-xs bg-red-50 text-red-400 px-2 py-0.5 rounded-full">חשבונית ✕</span>
             }
+            {item.owner === 'tomer' && (
+              <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-semibold">תומר</span>
+            )}
+            {item.owner === 'yael' && (
+              <span className="text-xs bg-pink-50 text-pink-600 px-2 py-0.5 rounded-full font-semibold">יעל</span>
+            )}
           </div>
 
           {item.expectedDate && (

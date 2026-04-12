@@ -12,12 +12,14 @@ const STATE_ID = 'main'
 export async function loadState() {
   const { data, error } = await supabase
     .from('app_state')
-    .select('state')
+    .select('state_v2, state')
     .eq('id', STATE_ID)
     .single()
   if (error || !data) { console.warn('[Supabase loadState failed]', error); return null }
-  console.log('[Supabase loaded] usdRate:', data.state?.usdRate, 'accounts ILS:', data.state?.accounts?.reduce((s,a)=>s+(a.balance||0),0))
-  return data.state
+  // קוראים מ-state_v2 בלבד. אם ריק (נדיר), fallback לעמודה הישנה רק לטעינה ראשונית.
+  const loaded = data.state_v2 || data.state
+  console.log('[Supabase loaded from state_v2] usdRate:', loaded?.usdRate, 'accounts ILS:', loaded?.accounts?.reduce((s,a)=>s+(a.balance||0),0))
+  return loaded
 }
 
 export function subscribeToChanges(callback) {
@@ -58,39 +60,25 @@ export async function saveState(state) {
   const setStatus = useSaveStatus.getState().setStatus
   setStatus('saving')
 
-  // בדיקת טריות — לא לדרוס ענן חדש יותר
-  try {
-    const { data: cloudRow } = await supabase
-      .from('app_state')
-      .select('state')
-      .eq('id', STATE_ID)
-      .single()
-    const cloudLastSaved = cloudRow?.state?.lastSaved || 0
-    const localLastSaved = state?.lastSaved || 0
-    // חלון חסד של 2 שניות כדי לא להיחסם ע"י שמירות שהרגע יצאו מהמכשיר עצמו
-    if (cloudLastSaved > localLastSaved + 2000) {
-      console.warn('[Supabase saveState BLOCKED] cloud is newer', { cloudLastSaved, localLastSaved })
-      setStatus('stale', 'מצב הענן חדש יותר — רענן לפני שמירה')
-      return
-    }
-  } catch (e) {
-    console.warn('[Supabase freshness check failed, continuing]', e)
-  }
-
   const now = Date.now()
-  useStore.setState({ lastSaved: now })
+  // קוראים את המצב העדכני ביותר מהחנות, לא את הפרמטר הישן שנלכד ברגע הקריאה
+  const freshState = useStore.getState()
   const serializable = Object.fromEntries(
-    Object.entries({ ...state, lastSaved: now }).filter(([, v]) => typeof v !== 'function')
+    Object.entries({ ...freshState, lastSaved: now }).filter(([, v]) => typeof v !== 'function')
   )
   isSaving = true
   let retries = 3
   let lastError = null
   while (retries > 0) {
+    // כותבים רק לעמודה החדשה state_v2. העמודה הישנה state נשארת נטושה ומופעים ישנים
+    // שעדיין כותבים אליה לא יוכלו לדרוס שום נתונים שלנו.
     const { error } = await supabase
       .from('app_state')
-      .upsert({ id: STATE_ID, state: serializable, updated_at: new Date().toISOString() })
+      .update({ state_v2: serializable, updated_at: new Date().toISOString() })
+      .eq('id', STATE_ID)
     if (!error) {
-      console.log('[Supabase saved] at', new Date().toLocaleTimeString(), '| loans:', (serializable.loans||[]).length)
+      useStore.setState({ lastSaved: now })
+      console.log('[Supabase saved to state_v2] at', new Date().toLocaleTimeString(), '| loans:', (serializable.loans||[]).length)
       // גיבוי אוטומטי אחרי כל שמירה מוצלחת
       try { localStorage.setItem('financial_state_backup', JSON.stringify(serializable)); localStorage.setItem('financial_state_backup_ts', String(now)) } catch {}
       isSaving = false
