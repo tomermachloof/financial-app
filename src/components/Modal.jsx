@@ -35,14 +35,14 @@ export default function Modal({ title, onClose, onSave, children }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[60] flex items-start justify-center px-5 pb-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
       onMouseDown={handleBackdropPointerDown}
       onMouseUp={handleBackdropPointerUp}
       onTouchStart={handleBackdropPointerDown}
       onTouchEnd={handleBackdropPointerUp}
     >
-      <div className="bg-white rounded-2xl w-full max-w-lg max-h-[88vh] flex flex-col shadow-2xl" onKeyDown={handleKeyDown}>
+      <div className="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl overflow-hidden mt-20" onKeyDown={handleKeyDown}>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-100">
           <h2 className="text-lg font-bold text-gray-800">{title}</h2>
@@ -54,7 +54,7 @@ export default function Modal({ title, onClose, onSave, children }) {
           </button>
         </div>
         {/* Content */}
-        <div className="overflow-y-auto flex-1 p-4 scroll-right">
+        <div className="overflow-y-auto overflow-x-hidden flex-1 p-4 scroll-right">
           {children}
         </div>
       </div>
@@ -66,7 +66,7 @@ export default function Modal({ title, onClose, onSave, children }) {
 
 export function Field({ label, children, hint }) {
   return (
-    <div className="mb-4">
+    <div className="mb-4 overflow-hidden">
       <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
       {children}
       {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
@@ -74,7 +74,7 @@ export function Field({ label, children, hint }) {
   )
 }
 
-export function Input({ value, onChange, type = 'text', placeholder, min, step }) {
+export function Input({ value, onChange, type = 'text', placeholder, min, step, style }) {
   // בשדה תאריך — פתיחת בוחר התאריכים בלחיצה בכל מקום על השדה (לא רק על האייקון)
   const handleClick = (e) => {
     if (type === 'date' && typeof e.currentTarget.showPicker === 'function') {
@@ -91,7 +91,8 @@ export function Input({ value, onChange, type = 'text', placeholder, min, step }
       placeholder={placeholder}
       min={min}
       step={step}
-      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
+      className="w-full min-w-0 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
+      style={{ maxWidth: '100%', boxSizing: 'border-box', WebkitAppearance: 'none', ...style }}
     />
   )
 }
@@ -101,7 +102,7 @@ export function Select({ value, onChange, options }) {
     <select
       value={value ?? ''}
       onChange={e => onChange(e.target.value)}
-      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
+      className="w-full min-w-0 max-w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 box-border"
     >
       {options.map(o => (
         <option key={o.value} value={o.value}>{o.label}</option>

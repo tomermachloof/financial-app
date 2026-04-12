@@ -676,7 +676,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-40"
       onMouseDown={ev => { pressStartedOnBackdropRef.current = ev.target === ev.currentTarget }}
       onMouseUp={ev => {
         if (pressStartedOnBackdropRef.current && ev.target === ev.currentTarget) onClose()

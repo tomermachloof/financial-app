@@ -30,18 +30,38 @@ export default {
     ctx.waitUntil(sendDailyNotification(env))
   },
 
-  // For manual testing: GET https://your-worker.workers.dev/test
   async fetch(request, env) {
-    if (new URL(request.url).pathname === '/test') {
+    const url = new URL(request.url)
+    const cors = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    }
+    if (request.method === 'OPTIONS') return new Response(null, { headers: cors })
+
+    // ── חישוב מרחק מהבית ──
+    if (url.pathname === '/distance') {
+      const dest = url.searchParams.get('destination')
+      if (!dest) return new Response(JSON.stringify({ error: 'missing destination' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } })
       try {
-        await sendDailyNotification(env)
-        return new Response('sent', { status: 200 })
+        const result = await calcDistance(dest, env)
+        return new Response(JSON.stringify(result), { headers: { ...cors, 'Content-Type': 'application/json' } })
       } catch (err) {
-        console.error('notify failed:', err && err.stack || err)
-        return new Response('error: ' + (err && err.message || String(err)), { status: 500 })
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } })
       }
     }
-    return new Response('ok', { status: 200 })
+
+    // ── בדיקת התראות (ידני) ──
+    if (url.pathname === '/test') {
+      try {
+        await sendDailyNotification(env)
+        return new Response('sent', { status: 200, headers: cors })
+      } catch (err) {
+        console.error('notify failed:', err && err.stack || err)
+        return new Response('error: ' + (err && err.message || String(err)), { status: 500, headers: cors })
+      }
+    }
+    return new Response('ok', { status: 200, headers: cors })
   },
 }
 
@@ -384,4 +404,35 @@ async function upsertSupabase(env, id, state) {
     body: JSON.stringify({ id, state, updated_at: new Date().toISOString() }),
   })
   return res.ok
+}
+
+// ── חישוב מרחק מהבית ──────────────────────────────────────────
+const HOME_ADDRESS = 'משה וילנסקי 55, תל אביב, ישראל'
+const DISTANCE_THRESHOLD_KM = 20
+
+async function calcDistance(destination, env) {
+  const key = env.GOOGLE_MAPS_KEY
+  if (!key) throw new Error('GOOGLE_MAPS_KEY not configured')
+
+  const params = new URLSearchParams({
+    origins: HOME_ADDRESS,
+    destinations: destination + ', ישראל',
+    key,
+    language: 'he',
+  })
+  const res = await fetch(
+    `https://maps.googleapis.com/maps/api/distancematrix/json?${params}`
+  )
+  const data = await res.json()
+
+  if (data.status !== 'OK') throw new Error('Google API error: ' + data.status)
+  const el = data.rows?.[0]?.elements?.[0]
+  if (!el || el.status !== 'OK') throw new Error('No route found: ' + (el?.status || 'unknown'))
+
+  const distanceKm = Math.round(el.distance.value / 1000)
+  return {
+    distanceKm,
+    distanceText: el.distance.text,
+    isAboveThreshold: distanceKm > DISTANCE_THRESHOLD_KM,
+  }
 }

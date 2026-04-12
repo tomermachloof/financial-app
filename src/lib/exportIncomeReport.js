@@ -5,6 +5,7 @@
 
 import { formatDate } from '../utils/formatters'
 
+// פירוט טקסטואלי פשוט (לשימוש ברשימה רגילה)
 const describeSession = (ws) => {
   if (!ws) return '—'
   if (ws.manualMode) return 'סכום ידני'
@@ -16,6 +17,43 @@ const describeSession = (ws) => {
     if (ws.workHours != null) parts.push(`${ws.workHours} שעות`)
     if (ws.travelHours) parts.push(`כולל נסיעות ${ws.travelHours}`)
     return parts.join(' · ') || '—'
+  }
+  if (ws.type === 'חזרות' || ws.type === 'מדידות') {
+    return `${ws.hours || 0} שעות`
+  }
+  if (ws.quantity && ws.ratePerUnit) {
+    return `${ws.quantity} × ₪${ws.ratePerUnit}`
+  }
+  return '—'
+}
+
+// פירוט עם צבעים לדוח סוכנות — מציג 4 שעות, צובע את אלה שמשמשות לחישוב
+const describeSessionHtml = (ws) => {
+  if (!ws) return '—'
+  if (ws.manualMode) return 'סכום ידני'
+  if (ws.type === 'יום צילום') {
+    const useTravel = !!ws.useTravelForCalc
+    // צבע: ירוק = חישוב מהסט, כתום = חישוב מהבית (כולל נסיעות)
+    const calcColor = useTravel ? '#d97706' : '#059669'
+    const normalColor = '#6b7280'
+
+    const pickupColor = useTravel ? calcColor : normalColor
+    const shootColor  = useTravel ? normalColor : calcColor
+    const returnColor = useTravel ? calcColor : normalColor
+
+    const lines = []
+    lines.push(`<span style="color:${pickupColor};font-weight:${useTravel ? '700' : '400'}">איסוף: ${ws.pickupTime || '—'}</span>`)
+    lines.push(`<span style="color:${shootColor};font-weight:${!useTravel ? '700' : '400'}">תחילת צילום: ${ws.shootStart || '—'}</span>`)
+    lines.push(`<span style="color:${shootColor};font-weight:${!useTravel ? '700' : '400'}">סיום צילום: ${ws.shootEnd || '—'}</span>`)
+    lines.push(`<span style="color:${returnColor};font-weight:${useTravel ? '700' : '400'}">חזור: ${ws.returnTime || '—'}</span>`)
+
+    // שורת סיכום שעות
+    const hours = useTravel ? ws.travelHours : ws.workHours
+    if (hours != null) {
+      lines.push(`<span style="color:${calcColor};font-weight:700;font-size:11px;">${hours} שעות ${useTravel ? '(כולל נסיעות)' : '(צילום)'}</span>`)
+    }
+
+    return lines.join('<br>')
   }
   if (ws.type === 'חזרות' || ws.type === 'מדידות') {
     return `${ws.hours || 0} שעות`
@@ -77,16 +115,22 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
 
   // בניית שורות הטבלה
   const rowsHtml = sessions.length > 0
-    ? sessions.map((ws, i) => `
+    ? sessions.map((ws, i) => {
+        const locClass = ws.setIsAboveThreshold ? 'location from-home' : 'location from-set'
+        const locText = ws.setLocation
+          ? `${escapeHtml(ws.setLocation)}${ws.setDistanceKm != null ? ` (${ws.setDistanceKm} ק״מ)` : ''}<br><span style="font-size:10px;">${ws.setIsAboveThreshold ? '🚗 מהבית' : '📍 מהסט'}</span>`
+          : '—'
+        return `
         <tr>
           <td class="num">${i + 1}</td>
           <td>${escapeHtml(ws.type || '—')}</td>
           <td>${escapeHtml(ws.date ? formatDate(ws.date) : 'ללא תאריך')}</td>
-          <td class="detail">${escapeHtml(describeSession(ws))}</td>
+          <td class="${locClass}">${locText}</td>
+          <td class="detail">${describeSessionHtml(ws)}</td>
           <td class="amount">₪${(ws.amount || 0).toLocaleString()}</td>
-        </tr>
-      `).join('')
-    : `<tr><td colspan="5" class="empty">אין רישומים בתקופה הנבחרת</td></tr>`
+        </tr>`
+      }).join('')
+    : `<tr><td colspan="6" class="empty">אין רישומים בתקופה הנבחרת</td></tr>`
 
   const safeName = escapeHtml(item.name || 'פרויקט')
   // כותרת המסמך — הדפדפן משתמש בזה כשם ברירת המחדל לקובץ PDF בשמירה
@@ -163,6 +207,9 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
     td.num { text-align: center; color: #9ca3af; width: 40px; }
     td.amount { text-align: left; font-weight: 700; color: #059669; white-space: nowrap; }
     td.detail { color: #4b5563; }
+    td.location { font-size: 11px; }
+    td.location.from-home { color: #d97706; font-weight: 600; }
+    td.location.from-set  { color: #059669; }
     td.empty { text-align: center; color: #9ca3af; padding: 24px; }
     .summary-box {
       margin-top: 24px;
@@ -241,6 +288,7 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
         <th style="width:40px;text-align:center;">#</th>
         <th>סוג</th>
         <th>תאריך</th>
+        <th>מיקום</th>
         <th>פירוט</th>
         <th style="text-align:left;">סכום</th>
       </tr>
@@ -266,7 +314,7 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
     </div>
     ` : ''}
   </div>
-  <p class="note">* הסכומים הנ״ל לפני מע״מ</p>
+  <p class="note">* הסכומים הנ״ל לא כוללים עמלת סוכן ומע״מ</p>
 
   <div class="footer">
     נוצר אוטומטית ממערכת ניהול ההכנסות

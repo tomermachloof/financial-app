@@ -741,47 +741,50 @@ export default function Dashboard() {
             title={`${RANGE_OPTIONS.find(o => o.days === rangeDays)?.label} הקרובים`}
             icon="📅"
             toolbar={
-              <div className="flex gap-1 items-center">
-                {RANGE_OPTIONS.map(o => (
-                  <button
-                    key={o.days}
-                    onClick={() => setRangeDays(o.days)}
-                    className={`px-2 py-1 text-xs font-semibold rounded-lg transition-colors
-                      ${rangeDays === o.days ? 'bg-blue-600 text-white' : 'text-gray-400'}`}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-                <div className="w-px h-4 bg-gray-200 mx-0.5" />
-                {[
-                  { v: 'all',     label: 'הכל', active: 'bg-gray-700 text-white',  inactive: 'text-gray-400' },
-                  { v: 'income',  label: '💚',   active: 'bg-green-500 text-white', inactive: 'text-gray-400' },
-                  { v: 'expense', label: '🔴',   active: 'bg-red-500 text-white',   inactive: 'text-gray-400' },
-                ].map(o => (
-                  <button
-                    key={o.v}
-                    onClick={() => setFilterType(o.v)}
-                    className={`px-2 py-1 text-xs font-semibold rounded-lg transition-colors
-                      ${filterType === o.v ? o.active : o.inactive}`}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-                <div className="w-px h-4 bg-gray-200 mx-0.5" />
-                {[
-                  { v: 'all', label: '🌐', active: 'bg-gray-700 text-white', inactive: 'text-gray-400' },
-                  { v: 'ILS', label: '₪',  active: 'bg-blue-600 text-white', inactive: 'text-gray-400' },
-                  { v: 'USD', label: '$',  active: 'bg-green-600 text-white', inactive: 'text-gray-400' },
-                ].map(o => (
-                  <button
-                    key={o.v}
-                    onClick={() => setFilterCurrency(o.v)}
-                    className={`px-2 py-1 text-xs font-semibold rounded-lg transition-colors
-                      ${filterCurrency === o.v ? o.active : o.inactive}`}
-                  >
-                    {o.label}
-                  </button>
-                ))}
+              <div className="flex gap-1.5 items-center">
+                {/* טווח — לחיצה מחליפה */}
+                <button
+                  onClick={() => {
+                    const opts = [14, 30, 90]
+                    setRangeDays(opts[(opts.indexOf(rangeDays) + 1) % opts.length])
+                  }}
+                  className={`w-9 h-9 flex items-center justify-center rounded-full text-white text-xs font-bold shadow active:scale-90 transition-transform ${
+                    rangeDays === 14 ? 'bg-blue-600' : rangeDays === 30 ? 'bg-purple-600' : 'bg-yellow-500'
+                  }`}
+                  title={RANGE_OPTIONS.find(o => o.days === rangeDays)?.label}
+                >
+                  {rangeDays === 14 ? '14' : rangeDays === 30 ? '30' : '90'}
+                </button>
+                {/* סוג — לחיצה מחליפה */}
+                <button
+                  onClick={() => {
+                    const opts = ['all', 'income', 'expense']
+                    setFilterType(opts[(opts.indexOf(filterType) + 1) % opts.length])
+                  }}
+                  className={`w-9 h-9 flex items-center justify-center rounded-full text-sm shadow active:scale-90 transition-transform ${
+                    filterType === 'income' ? 'bg-green-500 text-white' :
+                    filterType === 'expense' ? 'bg-red-500 text-white' :
+                    'bg-gray-600 text-white'
+                  }`}
+                  title={filterType === 'all' ? 'הכל' : filterType === 'income' ? 'הכנסות' : 'הוצאות'}
+                >
+                  {filterType === 'income' ? '💚' : filterType === 'expense' ? '🔴' : '🔄'}
+                </button>
+                {/* מטבע — לחיצה מחליפה */}
+                <button
+                  onClick={() => {
+                    const opts = ['all', 'ILS', 'USD']
+                    setFilterCurrency(opts[(opts.indexOf(filterCurrency) + 1) % opts.length])
+                  }}
+                  className={`w-9 h-9 flex items-center justify-center rounded-full text-sm font-bold shadow active:scale-90 transition-transform ${
+                    filterCurrency === 'ILS' ? 'bg-blue-600 text-white' :
+                    filterCurrency === 'USD' ? 'bg-green-600 text-white' :
+                    'bg-gray-600 text-white'
+                  }`}
+                  title={filterCurrency === 'all' ? 'הכל' : filterCurrency}
+                >
+                  {filterCurrency === 'ILS' ? '₪' : filterCurrency === 'USD' ? '$' : '🌐'}
+                </button>
               </div>
             }
           >
@@ -811,7 +814,7 @@ export default function Dashboard() {
         const total = filtered.reduce((s, a) => s + (isUSDModal ? (a.usdBalance || 0) : (a.balance || 0)), 0)
         return (
           <Backdrop
-            className="fixed inset-0 z-50 flex items-end justify-center bg-black bg-opacity-40"
+            className="fixed inset-0 z-[60] flex items-end justify-center bg-black bg-opacity-40"
             onClose={() => setShowAccountsModal(null)}
           >
             <div className="relative bg-white rounded-t-2xl w-full shadow-xl max-h-[80vh] flex flex-col">
@@ -928,7 +931,7 @@ export default function Dashboard() {
 
         return (
           <Backdrop
-            className="fixed inset-0 z-50 flex items-end justify-center bg-black bg-opacity-40"
+            className="fixed inset-0 z-[60] flex items-end justify-center bg-black bg-opacity-40"
             onClose={() => setShowNetWorthModal(false)}
           >
             <div className="relative bg-white rounded-t-2xl w-full shadow-xl max-h-[85vh] flex flex-col">
@@ -1011,7 +1014,7 @@ export default function Dashboard() {
         }
         return (
           <Backdrop
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-40"
             onClose={() => setInvUpdateRem(null)}
           >
             <div className="bg-white w-full max-w-sm rounded-3xl mx-4 p-6">
@@ -1037,7 +1040,7 @@ export default function Dashboard() {
       {/* All Reminders Modal */}
       {showAllReminders && (
         <Backdrop
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-40"
           onClose={() => setShowAllReminders(false)}
         >
           <div className="bg-white w-full max-w-md rounded-3xl mx-4 scroll-right" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
@@ -1158,7 +1161,7 @@ export default function Dashboard() {
         ]
         return (
           <Backdrop
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-40"
             onClose={() => setShowDataModal(false)}
           >
             <div className="bg-white w-full max-w-md rounded-3xl mx-4 scroll-right" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
@@ -1313,7 +1316,7 @@ export default function Dashboard() {
         }
         return (
           <Backdrop
-            className="fixed inset-0 z-50 flex items-end justify-center bg-black bg-opacity-40"
+            className="fixed inset-0 z-[60] flex items-end justify-center bg-black bg-opacity-40"
             onClose={() => setAccountPickerFor(null)}
           >
             <div className="relative bg-white rounded-t-2xl w-full shadow-xl max-h-[80vh] flex flex-col">

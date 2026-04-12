@@ -6,6 +6,7 @@ import TimePicker from '../components/TimePicker'
 import Backdrop from '../components/Backdrop'
 import PartialPaymentModal from '../components/PartialPaymentModal'
 import { exportIncomeReport } from '../lib/exportIncomeReport'
+import { calcDistanceFromHome } from '../lib/distanceCalc'
 import { formatILS, formatDate, daysUntil, urgencyClass, urgencyLabel } from '../utils/formatters'
 
 // ── Helpers: time and amount calculations ────────────────────────────
@@ -161,6 +162,10 @@ const EMPTY_NEW_SESS = {
   manualMode: false, manualAmount: '',
   // Whether photo day calc uses travel hours (pickup→return) instead of shoot hours
   useTravelForCalc: false,
+  // מיקום סט
+  setLocation: '',
+  setDistanceKm: null,
+  setIsAboveThreshold: null,
 }
 const unitLabel = t => t === 'יום צילום' ? 'ימים' : 'שעות'
 
@@ -232,6 +237,7 @@ export default function IncomePage() {
   const [receiveModal, setReceiveModal] = useState(null) // { item }
   const [receiveAccId, setReceiveAccId] = useState('')
   const [newSess,      setNewSess]      = useState(EMPTY_NEW_SESS)
+  const [distLoading,  setDistLoading]  = useState(false)
   const [showPartialModal, setShowPartialModal] = useState(false)
 
   // ── Helper: files תאימות לאחור לשדה invoiceFile הישן ──
@@ -353,6 +359,9 @@ export default function IncomePage() {
         manualMode: !!newSess.manualMode,
         manualAmount: newSess.manualMode ? (Number(newSess.manualAmount) || 0) : null,
         amount: finalAmt,
+        setLocation: newSess.setLocation || null,
+        setDistanceKm: newSess.setDistanceKm ?? null,
+        setIsAboveThreshold: newSess.setIsAboveThreshold ?? null,
       }
     }
     if (t === 'חזרות' || t === 'מדידות') {
@@ -425,6 +434,9 @@ export default function IncomePage() {
       manualMode: !!ws.manualMode,
       manualAmount: ws.manualAmount != null ? String(ws.manualAmount) : '',
       useTravelForCalc: !!ws.useTravelForCalc,
+      setLocation: ws.setLocation || '',
+      setDistanceKm: ws.setDistanceKm ?? null,
+      setIsAboveThreshold: ws.setIsAboveThreshold ?? null,
     })
   }
 
@@ -899,6 +911,11 @@ export default function IncomePage() {
                         <p className="text-xs text-gray-400">
                           {ws.date ? formatDate(ws.date) : 'ללא תאריך'} · {formatSessionDetail(ws)}
                         </p>
+                        {ws.setLocation && (
+                          <p className={`text-xs font-medium ${ws.setIsAboveThreshold ? 'text-orange-500' : 'text-green-600'}`}>
+                            {ws.setIsAboveThreshold ? '🚗' : '📍'} {ws.setLocation} ({ws.setDistanceKm} ק״מ) — {ws.setIsAboveThreshold ? 'מהבית' : 'מהסט'}
+                          </p>
+                        )}
                         {ws.overtimeAmt > 0 && (
                           <p className="text-xs text-orange-400">כולל שעות נוספות: {formatILS(ws.overtimeAmt)}</p>
                         )}
@@ -938,6 +955,49 @@ export default function IncomePage() {
                   <Input type="date" value={newSess.date} onChange={v => setNewSess(s => ({ ...s, date: v }))} />
                 </Field>
               </div>
+
+              {/* ═══ מיקום סט ═══ */}
+              {newSess.type === 'יום צילום' && (
+                <div className="space-y-1">
+                  <Field label="מיקום סט">
+                    <div className="flex gap-2">
+                      <Input
+                        value={newSess.setLocation}
+                        onChange={v => setNewSess(s => ({ ...s, setLocation: v, setDistanceKm: null, setIsAboveThreshold: null }))}
+                        placeholder="למשל: הרצליה, באר שבע, ירושלים..."
+                      />
+                      <button
+                        type="button"
+                        disabled={distLoading || !newSess.setLocation || newSess.setLocation.trim().length < 3}
+                        onClick={async () => {
+                          setDistLoading(true)
+                          const result = await calcDistanceFromHome(newSess.setLocation)
+                          setDistLoading(false)
+                          if (result) {
+                            setNewSess(s => ({
+                              ...s,
+                              setDistanceKm: result.distanceKm,
+                              setIsAboveThreshold: result.isAboveThreshold,
+                              useTravelForCalc: result.isAboveThreshold,
+                            }))
+                          }
+                        }}
+                        className="shrink-0 px-3 py-2 bg-blue-600 text-white text-xs font-semibold rounded-xl disabled:opacity-40"
+                      >
+                        {distLoading ? '...' : 'בדוק'}
+                      </button>
+                    </div>
+                  </Field>
+                  {newSess.setDistanceKm != null && (
+                    <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold ${newSess.setIsAboveThreshold ? 'bg-orange-50 text-orange-700' : 'bg-green-50 text-green-700'}`}>
+                      <span>{newSess.setIsAboveThreshold ? '🚗' : '📍'}</span>
+                      <span>{newSess.setDistanceKm} ק״מ מהבית</span>
+                      <span className="mr-auto">—</span>
+                      <span>{newSess.setIsAboveThreshold ? 'חישוב מיציאה מהבית' : 'חישוב מהגעה לסט'}</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* ═══ Photo day ═══ */}
               {newSess.type === 'יום צילום' && (() => {
@@ -1225,6 +1285,7 @@ export default function IncomePage() {
               type="date"
               value={exportCutoff}
               onChange={v => setExportCutoff(v)}
+              style={{ maxWidth: '100%', boxSizing: 'border-box' }}
             />
           </Field>
           <div className="bg-gray-50 rounded-xl px-3 py-2 text-xs text-gray-500 space-y-0.5">
@@ -1260,7 +1321,7 @@ export default function IncomePage() {
       {/* ── Receive: account picker ── */}
       {receiveModal && (
         <Backdrop
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black bg-opacity-30"
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-black bg-opacity-30"
           onClose={() => setReceiveModal(null)}
         >
           <div className="relative bg-white rounded-t-2xl w-full shadow-xl p-5 space-y-4">

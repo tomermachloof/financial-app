@@ -196,7 +196,7 @@ export default function CalendarPage() {
         const title = `${isIn ? 'נכנס' : 'יוצא'} ${isUSD ? '$' : '₪'} — ${MONTHS_HE[month-1]} ${year}`
         return (
           <Backdrop
-            className="fixed inset-0 z-50 flex flex-col justify-end bg-black bg-opacity-30"
+            className="fixed inset-0 z-[60] flex flex-col justify-end bg-black bg-opacity-30"
             onClose={() => setDetail(null)}
           >
             <div className="relative bg-white rounded-t-2xl shadow-xl max-h-[70vh] flex flex-col">
