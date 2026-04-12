@@ -379,7 +379,7 @@ ${g}`}class Ze extends Error{constructor({message:t,code:n,cause:r,name:s}){var 
     </div>
     `:""}
   </div>
-  <p class="note">* הסכומים הנ״ל לפני מע״מ</p>
+  <p class="note">* הסכומים הנ״ל לא כוללים עמלת סוכן ומע״מ</p>
 
   <div class="footer">
     נוצר אוטומטית ממערכת ניהול ההכנסות
