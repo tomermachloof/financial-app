@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ניהול הכנסות לשחקנים</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --orange: #f97316; --red: #ef4444; --gold: #f59e0b; --amber: #d97706;
+      --deep: #1a0a04; --dark: #2d1106; --cream: #fff7ed;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; font-family:'Heebo',sans-serif; }
+    html { scroll-behavior:smooth; }
+    body { -webkit-font-smoothing:antialiased; color:#1a1a1a; }
+
+    /* ── Backgrounds ── */
+    .bg-hero    { background: linear-gradient(160deg, #1a0a04, #3d1106 30%, #7c2d12 60%, #c2410c 100%); }
+    .bg-orange  { background: linear-gradient(160deg, #ea580c, #f97316 50%, #fb923c 100%); }
+    .bg-gold    { background: linear-gradient(160deg, #d97706, #f59e0b 50%, #fbbf24 100%); }
+    .bg-red     { background: linear-gradient(160deg, #b91c1c, #ef4444 60%, #f87171 100%); }
+    .bg-dark    { background: linear-gradient(160deg, #1a0a04, #2d1106 60%, #451a03); }
+    .bg-warm    { background: linear-gradient(160deg, #7c2d12, #9a3412 50%, #c2410c 100%); }
+    .bg-cream   { background: #fff7ed; }
+
+    /* ── Glass cards on colored bg ── */
+    .glass-w { background:rgba(255,255,255,0.15); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border:1px solid rgba(255,255,255,0.2); }
+    .glass-w-strong { background:rgba(255,255,255,0.92); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border:1px solid rgba(255,255,255,0.6); box-shadow:0 8px 32px rgba(0,0,0,0.1); }
+    .glass-dark { background:rgba(0,0,0,0.2); backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,0.08); }
+
+    /* ── Animations ── */
+    .fade-up { opacity:0; transform:translateY(28px); transition: opacity 0.6s cubic-bezier(.22,1,.36,1), transform 0.6s cubic-bezier(.22,1,.36,1); }
+    .fade-up.visible { opacity:1; transform:translateY(0); }
+    .float-slow { animation: fl 6s ease-in-out infinite; }
+    @keyframes fl { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+    .pulse-ring { animation: pr 2.5s ease-in-out infinite; }
+    @keyframes pr { 0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,0.4), 0 4px 20px rgba(0,0,0,0.15)} 50%{box-shadow:0 0 0 14px rgba(255,255,255,0), 0 4px 20px rgba(0,0,0,0.15)} }
+    .shimmer { position:relative; overflow:hidden; }
+    .shimmer::after { content:''; position:absolute; inset:0; background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,0.2) 50%,transparent 70%); transform:translateX(-100%); animation: sh 3s ease-in-out infinite; }
+    @keyframes sh { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
+    .card-lift { transition: transform 0.3s cubic-bezier(.22,1,.36,1), box-shadow 0.3s; }
+    .card-lift:hover { transform:translateY(-5px); box-shadow:0 12px 40px rgba(0,0,0,0.15); }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
+
+    /* ── Noise overlay ── */
+    .noise { position:relative; }
+    .noise::before { content:''; position:absolute; inset:0; background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E"); pointer-events:none; z-index:1; }
+
+    /* ── Responsive ── */
+    .inner { max-width:1080px; margin:0 auto; padding:0 24px; }
+    @media(min-width:768px) { .md-grid-2 { grid-template-columns:1fr 1fr !important; } .md-grid-3 { grid-template-columns:1fr 1fr 1fr !important; } }
+  </style>
+</head>
+<body>
+
+  <!-- ═══════════════ HERO ═══════════════ -->
+  <section class="bg-hero noise" style="min-height:100vh;display:flex;align-items:center;overflow:hidden;position:relative;">
+    <div class="absolute inset-0" style="z-index:0;">
+      <div style="position:absolute;top:5%;right:5%;width:400px;height:400px;background:radial-gradient(circle,rgba(251,146,60,0.15),transparent 70%);border-radius:50%;filter:blur(60px)"></div>
+      <div style="position:absolute;bottom:5%;left:8%;width:500px;height:500px;background:radial-gradient(circle,rgba(239,68,68,0.1),transparent 70%);border-radius:50%;filter:blur(80px)"></div>
+    </div>
+
+    <div class="inner relative" style="z-index:10;padding:5rem 24px;text-align:center;">
+      <div class="glass-w" style="display:inline-flex;align-items:center;gap:8px;border-radius:9999px;padding:6px 20px;margin-bottom:2rem;animation:fadeIn 0.7s 0.2s both;">
+        <span style="width:7px;height:7px;border-radius:50%;background:#fbbf24;box-shadow:0 0 10px #fbbf24"></span>
+        <span style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.75);">מערכת ניהול הכנסות לשחקנים</span>
+      </div>
+
+      <h1 style="font-size:clamp(2.5rem,6vw,4.2rem);font-weight:900;color:#fff;line-height:1.12;margin-bottom:1.25rem;animation:fadeIn 0.7s 0.35s both;">
+        אתה יודע כמה<br>
+        <span style="background:linear-gradient(to left,#fde68a,#fdba74,#fb923c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">באמת מגיע לך?</span>
+      </h1>
+
+      <p style="font-size:1.1rem;line-height:1.7;color:rgba(255,255,255,0.55);max-width:540px;margin:0 auto 2.5rem;animation:fadeIn 0.7s 0.5s both;">
+        שחקנים מתנהלים עם פתקים, הודעות וואטסאפ וזיכרון — ומפסידים כסף בלי לדעת. בנינו מערכת שפותרת את זה.
+      </p>
+
+      <a href="#s1" class="shimmer pulse-ring" style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff;font-weight:700;font-size:1.05rem;padding:15px 38px;border-radius:16px;text-decoration:none;animation:fadeIn 0.7s 0.65s both;">
+        ראה איך זה עובד ↓
+      </a>
+
+      <div style="display:flex;justify-content:center;gap:3rem;margin-top:3.5rem;animation:fadeIn 0.7s 0.8s both;">
+        <div style="text-align:center"><div style="font-size:2rem;font-weight:800;color:#fff">100%</div><div style="font-size:11px;color:rgba(255,255,255,0.35)">דיוק בחישוב</div></div>
+        <div style="width:1px;background:rgba(255,255,255,0.1)"></div>
+        <div style="text-align:center"><div style="font-size:2rem;font-weight:800;color:#fff">0</div><div style="font-size:11px;color:rgba(255,255,255,0.35)">פתקים נחוצים</div></div>
+        <div style="width:1px;background:rgba(255,255,255,0.1)"></div>
+        <div style="text-align:center"><div style="font-size:2rem;font-weight:800;color:#fff">PDF</div><div style="font-size:11px;color:rgba(255,255,255,0.35)">בלחיצה אחת</div></div>
+      </div>
+    </div>
+
+    <div style="position:absolute;bottom:0;left:0;right:0;height:80px;background:linear-gradient(to top,#ea580c,transparent);z-index:5"></div>
+  </section>
+
+
+  <!-- ═══════════════ PROBLEM STRIP ═══════════════ -->
+  <section class="bg-orange noise" style="padding:3rem 0;position:relative;">
+    <div class="inner relative" style="z-index:10;text-align:center;" class="fade-up">
+      <h2 style="font-size:clamp(1.3rem,3vw,1.7rem);font-weight:800;color:#fff;margin-bottom:1.25rem;">ככה נראית ההתנהלות של רוב השחקנים היום:</h2>
+      <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-bottom:1rem;">
+        <span class="glass-w" style="padding:8px 20px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;">📝 פתקים בטלפון</span>
+        <span class="glass-w" style="padding:8px 20px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;">💬 הודעות שנקברו</span>
+        <span class="glass-w" style="padding:8px 20px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;">🧠 זיכרון חלקי</span>
+        <span class="glass-w" style="padding:8px 20px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;">🤷 ״כמה שילמו לי?״</span>
+      </div>
+      <p style="font-size:15px;color:rgba(255,255,255,0.75);">המערכת שלנו משנה את זה — שלב אחרי שלב:</p>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ STEP 1 — חוזה ═══════════════ -->
+  <section id="s1" class="bg-gold noise" style="padding:5rem 0;position:relative;">
+    <div class="inner relative" style="z-index:10;">
+
+      <div class="fade-up" style="margin-bottom:1.5rem;">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;background:rgba(0,0,0,0.2);">😩 הבעיה</span>
+        <h2 style="font-size:clamp(1.5rem,3.5vw,2.2rem);font-weight:800;color:#fff;margin:0.75rem 0 0.4rem;">חוזה חדש הגיע — עכשיו צריך לעבור עליו ולהקליד ידנית</h2>
+        <p style="font-size:15px;color:rgba(255,255,255,0.7);">לוקח זמן, משאיר מקום לטעויות, ולפעמים לא ברור מה בדיוק סוכם.</p>
+      </div>
+
+      <div class="fade-up">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#065f46;background:rgba(255,255,255,0.85);">✅ הפתרון</span>
+        <h3 style="font-size:clamp(1.15rem,2.5vw,1.5rem);font-weight:700;color:#fff;margin:0.75rem 0 1.5rem;">גורר את החוזה → המערכת קוראת ומבינה</h3>
+
+        <div style="display:grid;grid-template-columns:1fr;gap:20px;" class="md-grid-2">
+          <!-- Drag -->
+          <div class="glass-w" style="border-radius:20px;padding:2rem;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+            <div style="border:2px dashed rgba(255,255,255,0.35);border-radius:16px;padding:2.5rem;text-align:center;width:100%;background:rgba(255,255,255,0.08);">
+              <div class="float-slow" style="font-size:3.5rem;margin-bottom:0.5rem;">📄</div>
+              <p style="font-size:1.1rem;font-weight:700;color:#fff;">גורר PDF או תמונה</p>
+              <p style="font-size:13px;color:rgba(255,255,255,0.6);margin-top:4px;">המערכת קוראת את החוזה</p>
+            </div>
+            <div style="margin:1rem 0;font-size:1.5rem;color:rgba(255,255,255,0.4);">⬇</div>
+            <p style="font-size:11px;color:rgba(255,255,255,0.5);font-weight:600;">השדות מתמלאים אוטומטית</p>
+          </div>
+
+          <!-- Result -->
+          <div class="glass-w-strong" style="border-radius:20px;padding:1.75rem;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:1.25rem;">
+              <span style="width:8px;height:8px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold)"></span>
+              <span style="font-size:11px;font-weight:700;color:#a8a29e;text-transform:uppercase;letter-spacing:0.06em;">שדות שהמערכת מילאה מהחוזה</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:14px;">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#d1fae5,#a7f3d0);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px;color:#059669;">✓</div>
+                <span style="font-size:13px;color:#a8a29e;width:105px;flex-shrink:0;">שם פרויקט:</span>
+                <span style="font-size:15px;font-weight:700;color:#1a0a04;">הסדרה — עונה 3</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#d1fae5,#a7f3d0);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px;color:#059669;">✓</div>
+                <span style="font-size:13px;color:#a8a29e;width:105px;flex-shrink:0;">סכום ליום צילום:</span>
+                <span style="font-size:15px;font-weight:700;color:#1a0a04;">₪3,200</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#d1fae5,#a7f3d0);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px;color:#059669;">✓</div>
+                <span style="font-size:13px;color:#a8a29e;width:105px;flex-shrink:0;">ימי צילום:</span>
+                <span style="font-size:15px;font-weight:700;color:#1a0a04;">12 ימים</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#d1fae5,#a7f3d0);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px;color:#059669;">✓</div>
+                <span style="font-size:13px;color:#a8a29e;width:105px;flex-shrink:0;">תאריך התחלה:</span>
+                <span style="font-size:15px;font-weight:700;color:#1a0a04;">01.05.2026</span>
+              </div>
+            </div>
+            <p style="font-size:11px;color:#d6d3d1;text-align:center;margin-top:1.25rem;">בודק → מאשר → ממשיך. בלי להקליד.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ STEP 2 — סוגי פרויקטים ═══════════════ -->
+  <section class="bg-dark noise" style="padding:5rem 0;position:relative;">
+    <div class="inner relative" style="z-index:10;">
+
+      <div class="fade-up" style="margin-bottom:1.5rem;">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#fca5a5;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.2);">😩 הבעיה</span>
+        <h2 style="font-size:clamp(1.5rem,3.5vw,2.2rem);font-weight:800;color:#fff;margin:0.75rem 0 0.4rem;">כל פרויקט שונה — אבל אתה מנהל את כולם אותו דבר</h2>
+        <p style="font-size:15px;color:rgba(255,255,255,0.5);">לכל אחד כללים אחרים, תשלומים אחרים, ושדות אחרים.</p>
+      </div>
+
+      <div class="fade-up">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#6ee7b7;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);">✅ הפתרון</span>
+        <h3 style="font-size:clamp(1.15rem,2.5vw,1.5rem);font-weight:700;color:#fff;margin:0.75rem 0 1.5rem;">כל סוג פרויקט עם שדות מותאמים בדיוק</h3>
+
+        <div style="display:grid;grid-template-columns:1fr;gap:14px;" class="md-grid-3">
+          <div class="glass-w card-lift" style="border-radius:20px;overflow:hidden;">
+            <div style="height:4px;background:linear-gradient(to left,#3b82f6,#60a5fa)"></div>
+            <div style="padding:1.5rem;">
+              <div style="width:44px;height:44px;border-radius:12px;background:rgba(59,130,246,0.15);display:flex;align-items:center;justify-content:center;font-size:1.3rem;margin-bottom:0.75rem;">🎥</div>
+              <h4 style="font-size:1.05rem;font-weight:700;color:#fff;margin-bottom:0.5rem;">טלוויזיה וקולנוע</h4>
+              <ul style="list-style:none;font-size:13px;color:rgba(255,255,255,0.6);display:flex;flex-direction:column;gap:6px;">
+                <li style="display:flex;align-items:center;gap:8px;"><span style="width:5px;height:5px;border-radius:50%;background:#60a5fa;flex-shrink:0"></span>ימי צילום עם שעות</li>
+                <li style="display:flex;align-items:center;gap:8px;"><span style="width:5px;height:5px;border-radius:50%;background:#60a5fa;flex-shrink:0"></span>תשלום חודשי + תוספות</li>
+                <li style="display:flex;align-items:center;gap:8px;"><span style="width:5px;height:5px;border-radius:50%;background:#60a5fa;flex-shrink:0"></span>מע"מ ועמלת סוכן</li>
+              </ul>
+            </div>
+          </div>
+          <div class="glass-w card-lift" style="border-radius:20px;overflow:hidden;">
+            <div style="height:4px;background:linear-gradient(to left,#8b5cf6,#a78bfa)"></div>
+            <div style="padding:1.5rem;">
+              <div style="width:44px;height:44px;border-radius:12px;background:rgba(139,92,246,0.15);display:flex;align-items:center;justify-content:center;font-size:1.3rem;margin-bottom:0.75rem;">🎭</div>
+              <h4 style="font-size:1.05rem;font-weight:700;color:#fff;margin-bottom:0.5rem;">תיאטרון</h4>
+              <ul style="list-style:none;font-size:13px;color:rgba(255,255,255,0.6);display:flex;flex-direction:column;gap:6px;">
+                <li style="display:flex;align-items:center;gap:8px;"><span style="width:5px;height:5px;border-radius:50%;background:#a78bfa;flex-shrink:0"></span>הצגות וחזרות</li>
+                <li style="display:flex;align-items:center;gap:8px;"><span style="width:5px;height:5px;border-radius:50%;background:#a78bfa;flex-shrink:0"></span>סכום כולל חזרות + מעקב</li>
+                <li style="display:flex;align-items:center;gap:8px;"><span style="width:5px;height:5px;border-radius:50%;background:#a78bfa;flex-shrink:0"></span>פס התקדמות ויזואלי</li>
+              </ul>
+            </div>
+          </div>
+          <div class="glass-w card-lift" style="border-radius:20px;overflow:hidden;">
+            <div style="height:4px;background:linear-gradient(to left,#f97316,#fbbf24)"></div>
+            <div style="padding:1.5rem;">
+              <div style="width:44px;height:44px;border-radius:12px;background:rgba(249,115,22,0.15);display:flex;align-items:center;justify-content:center;font-size:1.3rem;margin-bottom:0.75rem;">📢</div>
+              <h4 style="font-size:1.05rem;font-weight:700;color:#fff;margin-bottom:0.5rem;">מסחרי וקמפיינים</h4>
+              <ul style="list-style:none;font-size:13px;color:rgba(255,255,255,0.6);display:flex;flex-direction:column;gap:6px;">
+                <li style="display:flex;align-items:center;gap:8px;"><span style="width:5px;height:5px;border-radius:50%;background:#fbbf24;flex-shrink:0"></span>לקוח, פלטפורמה, ימי צילום</li>
+                <li style="display:flex;align-items:center;gap:8px;"><span style="width:5px;height:5px;border-radius:50%;background:#fbbf24;flex-shrink:0"></span>סכום קבוע לפי הסכם</li>
+                <li style="display:flex;align-items:center;gap:8px;"><span style="width:5px;height:5px;border-radius:50%;background:#fbbf24;flex-shrink:0"></span>תיעוד סוגי פעילויות</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ STEP 3 — סיכום אוטומטי ═══════════════ -->
+  <section class="bg-red noise" style="padding:5rem 0;position:relative;">
+    <div class="inner relative" style="z-index:10;">
+
+      <div class="fade-up" style="margin-bottom:1.5rem;">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;background:rgba(0,0,0,0.2);">😩 הבעיה</span>
+        <h2 style="font-size:clamp(1.5rem,3.5vw,2.2rem);font-weight:800;color:#fff;margin:0.75rem 0 0.4rem;">לחשב כמה מגיע לך? זה מסובך</h2>
+        <p style="font-size:15px;color:rgba(255,255,255,0.7);">סכום ליום, שעות נוספות, תוספות — צריך מחשבון ואקסל ובסוף לא בטוח.</p>
+      </div>
+
+      <div class="fade-up">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#065f46;background:rgba(255,255,255,0.85);">✅ הפתרון</span>
+        <h3 style="font-size:clamp(1.15rem,2.5vw,1.5rem);font-weight:700;color:#fff;margin:0.75rem 0 0.35rem;">אתה רק מוסיף תאריכים ושעות — המערכת מחשבת הכל</h3>
+        <p style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:1.5rem;">בכל רגע נתון אתה יודע בדיוק כמה מגיע לך. בלי מחשבונים.</p>
+
+        <div style="max-width:460px;margin:0 auto;">
+          <div class="glass-w-strong" style="border-radius:20px;overflow:hidden;">
+            <div class="shimmer" style="padding:14px 20px;background:linear-gradient(135deg,#f59e0b,#f97316);display:flex;align-items:center;justify-content:space-between;">
+              <div style="display:flex;align-items:center;gap:10px;"><span style="font-size:1.2rem">🎥</span><span style="font-weight:700;color:#fff">הסדרה — עונה 3</span></div>
+              <span style="background:rgba(255,255,255,0.2);color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:9999px;">₪3,200 ליום</span>
+            </div>
+            <div style="padding:1.25rem;">
+              <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:1rem;">
+                <div style="background:#fafaf9;border-radius:8px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;font-size:13px;">
+                  <div style="display:flex;align-items:center;gap:8px;"><span style="width:24px;height:24px;border-radius:6px;background:linear-gradient(135deg,#ffedd5,#fed7aa);color:#ea580c;font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center;">1</span><span style="color:#78716c">12.04</span></div>
+                  <span style="color:#a8a29e;font-size:11px">07:00–19:30</span>
+                  <span style="font-weight:700;color:#1a0a04">₪3,200</span>
+                </div>
+                <div style="background:#fafaf9;border-radius:8px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;font-size:13px;">
+                  <div style="display:flex;align-items:center;gap:8px;"><span style="width:24px;height:24px;border-radius:6px;background:linear-gradient(135deg,#ffedd5,#fed7aa);color:#ea580c;font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center;">2</span><span style="color:#78716c">15.04</span></div>
+                  <span style="color:#a8a29e;font-size:11px">08:00–22:00</span>
+                  <span style="font-weight:700;color:#1a0a04">₪3,200</span>
+                </div>
+                <div style="background:#fafaf9;border-radius:8px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;font-size:13px;">
+                  <div style="display:flex;align-items:center;gap:8px;"><span style="width:24px;height:24px;border-radius:6px;background:linear-gradient(135deg,#ffedd5,#fed7aa);color:#ea580c;font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center;">3</span><span style="color:#78716c">20.04</span></div>
+                  <span style="color:#a8a29e;font-size:11px">06:00–20:00</span>
+                  <span style="font-weight:700;color:#1a0a04">₪3,200</span>
+                </div>
+              </div>
+              <div style="background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1px solid rgba(249,115,22,0.15);border-radius:14px;padding:1rem 1.25rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                  <span style="font-size:15px;font-weight:600;color:#57534e">סה"כ עד עכשיו:</span>
+                  <span style="font-size:1.35rem;font-weight:900;color:#ea580c">₪9,600</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:#a8a29e">
+                  <span>3 ימי צילום · 39.5 שעות</span><span>מתוך 12 ימים מוסכמים</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ STEP 4 — מרחק ═══════════════ -->
+  <section class="bg-warm noise" style="padding:5rem 0;position:relative;">
+    <div class="inner relative" style="z-index:10;">
+
+      <div class="fade-up" style="margin-bottom:1.5rem;">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;background:rgba(0,0,0,0.2);">😩 הבעיה</span>
+        <h2 style="font-size:clamp(1.5rem,3.5vw,2.2rem);font-weight:800;color:#fff;margin:0.75rem 0 0.4rem;">מגיע לך על נסיעות — אבל כמה? ומאיפה מחשבים?</h2>
+        <p style="font-size:15px;color:rgba(255,255,255,0.7);max-width:600px;">לפי חוקי שח"ם יש הבדל אם הזמן מחושב מרגע יציאה מהבית או מרגע הגעה לסט. רוב השחקנים לא יודעים — ומפסידים כסף.</p>
+      </div>
+
+      <div class="fade-up">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#065f46;background:rgba(255,255,255,0.85);">✅ הפתרון</span>
+        <h3 style="font-size:clamp(1.15rem,2.5vw,1.5rem);font-weight:700;color:#fff;margin:0.75rem 0 0.35rem;">מזין כתובת — המערכת מחשבת מרחק לפי חוקי שח"ם</h3>
+        <p style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:1.5rem;">המערכת יודעת לקבוע אם החישוב מרגע היציאה מהבית או מהגעה לסט.</p>
+
+        <div style="max-width:460px;margin:0 auto;">
+          <div class="glass-w-strong" style="border-radius:20px;overflow:hidden;">
+            <div class="shimmer" style="padding:14px 20px;background:linear-gradient(135deg,#ef4444,#f97316);">
+              <h4 style="font-weight:700;color:#fff;display:flex;align-items:center;gap:8px;font-size:15px;">📍 חישוב מרחק ונסיעות</h4>
+            </div>
+            <div style="padding:1.25rem;">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem;">
+                <span style="font-size:1.2rem">📍</span>
+                <div style="flex:1;background:#fafaf9;border:1px solid #e7e5e4;border-radius:12px;padding:10px 14px;">
+                  <span style="font-size:13px;color:#44403c">סטודיו הרצליה, רח׳ השלום 12</span>
+                </div>
+              </div>
+              <div style="background:#fafaf9;border-radius:14px;padding:1rem 1.25rem;display:flex;flex-direction:column;gap:10px;font-size:13px;">
+                <div style="display:flex;justify-content:space-between"><span style="color:#78716c">מרחק מהבית:</span><span style="font-weight:700;color:#1a0a04">47 ק״מ</span></div>
+                <div style="display:flex;justify-content:space-between"><span style="color:#78716c">הלוך-חזור:</span><span style="font-weight:700;color:#1a0a04">94 ק״מ</span></div>
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                  <span style="color:#78716c">חישוב לפי:</span>
+                  <span style="background:linear-gradient(135deg,#fef3c7,#fde68a);color:#92400e;font-weight:700;font-size:11px;padding:4px 14px;border-radius:9999px;border:1px solid #fcd34d;">🚗 מרגע יציאה מהבית</span>
+                </div>
+                <div style="border-top:1px solid #e7e5e4;padding-top:10px;display:flex;justify-content:space-between;align-items:center">
+                  <span style="font-weight:600;color:#57534e">מגיע על נסיעות:</span>
+                  <span style="font-size:1.2rem;font-weight:900;color:#059669">₪282</span>
+                </div>
+              </div>
+              <p style="font-size:11px;color:#d6d3d1;text-align:center;margin-top:0.75rem;">המערכת מחליטה לפי חוקי שח"ם — אתה רק מזין כתובת</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ STEP 5 — תשלומים ═══════════════ -->
+  <section class="bg-orange noise" style="padding:5rem 0;position:relative;">
+    <div class="inner relative" style="z-index:10;">
+
+      <div class="fade-up" style="margin-bottom:1.5rem;">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;background:rgba(0,0,0,0.2);">😩 הבעיה</span>
+        <h2 style="font-size:clamp(1.5rem,3.5vw,2.2rem);font-weight:800;color:#fff;margin:0.75rem 0 0.4rem;">מה שולם? מה חסר? מתי הבא? לא ברור.</h2>
+        <p style="font-size:15px;color:rgba(255,255,255,0.7);">תשלומים חלקיים, בזמנים שונים. בלי מעקב אתה לא רודף אחרי מה שמגיע לך.</p>
+      </div>
+
+      <div class="fade-up">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#065f46;background:rgba(255,255,255,0.85);">✅ הפתרון</span>
+        <h3 style="font-size:clamp(1.15rem,2.5vw,1.5rem);font-weight:700;color:#fff;margin:0.75rem 0 1.5rem;">מעקב תשלומים בזמן אמת</h3>
+
+        <div style="max-width:460px;margin:0 auto;">
+          <div class="glass-w-strong" style="border-radius:20px;padding:1.5rem;">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:1.25rem;">
+              <span style="font-size:1.5rem">🎥</span>
+              <div><p style="font-weight:700;color:#1a0a04;font-size:15px">הסדרה — עונה 3</p><p style="font-size:11px;color:#a8a29e">סה"כ ₪38,400 (12 × ₪3,200)</p></div>
+            </div>
+            <div style="margin-bottom:1.25rem;">
+              <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span style="color:#78716c">התקדמות</span><span style="font-weight:700;color:#ea580c">46%</span></div>
+              <div style="width:100%;height:20px;background:#e7e5e4;border-radius:9999px;overflow:hidden">
+                <div style="width:46%;height:100%;border-radius:9999px;background:linear-gradient(135deg,#f59e0b,#f97316);display:flex;align-items:center;justify-content:flex-end;padding-right:8px">
+                  <span style="font-size:11px;font-weight:700;color:#fff">₪17,600</span>
+                </div>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:1.25rem;">
+              <div style="background:#f0fdf4;border-radius:14px;padding:12px;text-align:center;border:1px solid #bbf7d0"><p style="font-size:1.1rem;font-weight:900;color:#059669">₪17,600</p><p style="font-size:11px;color:#78716c">שולם</p></div>
+              <div style="background:#fff7ed;border-radius:14px;padding:12px;text-align:center;border:1px solid #fed7aa"><p style="font-size:1.1rem;font-weight:900;color:#ea580c">₪20,800</p><p style="font-size:11px;color:#78716c">נשאר</p></div>
+              <div style="background:#eff6ff;border-radius:14px;padding:12px;text-align:center;border:1px solid #bfdbfe"><p style="font-size:1.1rem;font-weight:900;color:#2563eb">01.06</p><p style="font-size:11px;color:#78716c">הבא</p></div>
+            </div>
+            <div style="border-top:1px solid #f5f5f4;padding-top:12px">
+              <p style="font-size:11px;font-weight:700;color:#d6d3d1;margin-bottom:8px">היסטוריית תשלומים:</p>
+              <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
+                <div style="display:flex;justify-content:space-between"><span style="color:#a8a29e">01.04.2026</span><span style="font-weight:600;color:#059669">+₪9,600</span></div>
+                <div style="display:flex;justify-content:space-between"><span style="color:#a8a29e">01.05.2026</span><span style="font-weight:600;color:#059669">+₪8,000</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ STEP 6 — PDF ═══════════════ -->
+  <section class="bg-gold noise" style="padding:5rem 0;position:relative;">
+    <div class="inner relative" style="z-index:10;">
+
+      <div class="fade-up" style="margin-bottom:1.5rem;">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;background:rgba(0,0,0,0.2);">😩 הבעיה</span>
+        <h2 style="font-size:clamp(1.5rem,3.5vw,2.2rem);font-weight:800;color:#fff;margin:0.75rem 0 0.4rem;">שליחת פירוט לסוכנות = הודעת וואטסאפ מבולגנת</h2>
+        <p style="font-size:15px;color:rgba(255,255,255,0.7);">מתחיל לכתוב, שוכח פרטים, מעגל מספרים. אי-הבנות ושאלות חוזרות.</p>
+      </div>
+
+      <div class="fade-up">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#065f46;background:rgba(255,255,255,0.85);">✅ הפתרון</span>
+        <h3 style="font-size:clamp(1.15rem,2.5vw,1.5rem);font-weight:700;color:#fff;margin:0.75rem 0 1.5rem;">לחיצה אחת → PDF מפורט ומקצועי</h3>
+
+        <div style="max-width:660px;margin:0 auto;">
+          <div class="glass-w-strong" style="border-radius:20px;overflow:hidden;position:relative;">
+            <div style="position:absolute;top:16px;left:16px;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;font-size:11px;font-weight:800;padding:4px 12px;border-radius:9999px;z-index:2;box-shadow:0 2px 8px rgba(239,68,68,0.3)">PDF</div>
+            <div style="padding:24px 28px 16px;border-bottom:3px solid #4f46e5">
+              <h4 style="font-size:1.2rem;font-weight:800;color:#1e1b4b;margin-bottom:2px">דיווח עבודה לסוכנות</h4>
+              <p style="font-size:11px;color:#a8a29e">מסמך תיעוד ימי עבודה</p>
+            </div>
+            <div style="margin:16px 28px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">
+              <div><span style="color:#9ca3af;font-weight:600">עבור: </span><span style="color:#111827;font-weight:700">תומר מכלוף</span></div>
+              <div><span style="color:#9ca3af;font-weight:600">פרויקט: </span><span style="color:#111827;font-weight:700">הסדרה — עונה 3</span></div>
+              <div><span style="color:#9ca3af;font-weight:600">הפקה: </span><span style="color:#111827;font-weight:700">19.04.2026</span></div>
+              <div><span style="color:#9ca3af;font-weight:600">דיווח: </span><span style="color:#111827;font-weight:700">עד 30.04.2026</span></div>
+            </div>
+            <div style="margin:0 28px 16px;overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:11px">
+                <thead><tr style="background:#4f46e5">
+                  <th style="padding:8px 10px;text-align:center;color:#fff;font-weight:700;width:28px">#</th>
+                  <th style="padding:8px 10px;text-align:right;color:#fff;font-weight:700">סוג</th>
+                  <th style="padding:8px 10px;text-align:right;color:#fff;font-weight:700">תאריך</th>
+                  <th style="padding:8px 10px;text-align:right;color:#fff;font-weight:700">מיקום</th>
+                  <th style="padding:8px 10px;text-align:right;color:#fff;font-weight:700">פירוט</th>
+                  <th style="padding:8px 10px;text-align:left;color:#fff;font-weight:700">סכום</th>
+                </tr></thead>
+                <tbody>
+                  <tr>
+                    <td style="padding:7px 10px;text-align:center;color:#9ca3af;border-bottom:1px solid #f3f4f6">1</td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;color:#374151">יום צילום</td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;color:#374151">12.04</td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;color:#d97706;font-weight:600">הרצליה (47 ק״מ)<br><span style="font-size:10px">🚗 מהבית</span></td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;color:#6b7280;line-height:1.5"><span style="color:#d97706;font-weight:700">06:00</span>–<span style="color:#d97706;font-weight:700">20:30</span><br><span style="color:#d97706;font-weight:700;font-size:10px">14.5 שעות (כולל נסיעות)</span></td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;text-align:left;font-weight:700;color:#059669">₪3,200</td>
+                  </tr>
+                  <tr style="background:#f9fafb">
+                    <td style="padding:7px 10px;text-align:center;color:#9ca3af;border-bottom:1px solid #f3f4f6">2</td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;color:#374151">יום צילום</td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;color:#374151">15.04</td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;color:#059669">כפר סבא (12 ק״מ)<br><span style="font-size:10px">📍 מהסט</span></td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;color:#6b7280;line-height:1.5"><span style="color:#059669;font-weight:700">08:00</span>–<span style="color:#059669;font-weight:700">22:00</span><br><span style="color:#059669;font-weight:700;font-size:10px">14 שעות (צילום)</span></td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;text-align:left;font-weight:700;color:#059669">₪3,200</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:7px 10px;text-align:center;color:#9ca3af;border-bottom:1px solid #f3f4f6">3</td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;color:#374151">חזרות</td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;color:#374151">22.04</td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;color:#9ca3af">—</td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;color:#6b7280">4 שעות</td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;text-align:left;font-weight:700;color:#059669">₪800</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div style="margin:0 28px 16px;background:#eef2ff;border-right:4px solid #4f46e5;border-radius:8px;padding:14px 18px">
+              <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;border-bottom:2px solid #4f46e5;margin-bottom:8px">
+                <span style="font-size:13px;font-weight:800;color:#1e1b4b">סך הכל עבודה בתקופה</span>
+                <span style="font-size:1.2rem;font-weight:800;color:#4f46e5">₪10,400</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #c7d2fe"><span style="font-size:11px;font-weight:600;color:#6b7280">כבר התקבל</span><span style="font-size:13px;font-weight:700;color:#059669">-₪9,600</span></div>
+              <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="font-size:11px;font-weight:600;color:#6b7280">יתרה לתשלום</span><span style="font-size:13px;font-weight:700;color:#d97706">₪800</span></div>
+            </div>
+            <p style="margin:0 28px;font-size:10px;color:#9ca3af;font-style:italic;text-align:left">* לא כולל עמלת סוכן ומע״מ</p>
+            <div style="margin:12px 28px 20px;padding-top:12px;border-top:1px solid #e5e7eb;text-align:center"><p style="font-size:10px;color:#d1d5db">נוצר אוטומטית ממערכת ניהול ההכנסות</p></div>
+          </div>
+          <div style="text-align:center;margin-top:1.25rem">
+            <span class="shimmer" style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#ef4444,#f97316);color:#fff;font-weight:700;font-size:15px;padding:14px 32px;border-radius:16px;box-shadow:0 4px 16px rgba(239,68,68,0.3)">📥 הורד PDF — בלחיצה אחת</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ BEFORE / AFTER ═══════════════ -->
+  <section class="bg-dark noise" style="padding:5rem 0;position:relative;">
+    <div class="inner relative" style="z-index:10;" class="fade-up">
+      <h2 style="font-size:clamp(1.5rem,3.5vw,2.2rem);font-weight:800;color:#fff;text-align:center;margin-bottom:2.5rem">לפני ← אחרי</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:720px;margin:0 auto">
+        <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.15);border-radius:20px;padding:1.5rem">
+          <h3 style="text-align:center;font-weight:800;color:#fca5a5;margin-bottom:1rem;font-size:1.05rem">😩 היום</h3>
+          <div style="display:flex;flex-direction:column;gap:10px;font-size:13px">
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(252,165,165,0.8)"><span style="color:#f87171">✗</span>פתקים, הודעות, זיכרון</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(252,165,165,0.8)"><span style="color:#f87171">✗</span>לא ברור מה כתוב בחוזה</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(252,165,165,0.8)"><span style="color:#f87171">✗</span>לא מחשבים נסיעות לפי שח"ם</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(252,165,165,0.8)"><span style="color:#f87171">✗</span>חישובים ידניים עם טעויות</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(252,165,165,0.8)"><span style="color:#f87171">✗</span>לא יודעים מה שולם</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(252,165,165,0.8)"><span style="color:#f87171">✗</span>וואטסאפ מבולגן לסוכנות</div>
+          </div>
+        </div>
+        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.15);border-radius:20px;padding:1.5rem">
+          <h3 style="text-align:center;font-weight:800;color:#6ee7b7;margin-bottom:1rem;font-size:1.05rem">😎 עם המערכת</h3>
+          <div style="display:flex;flex-direction:column;gap:10px;font-size:13px">
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(110,231,183,0.8)"><span style="color:#34d399">✓</span>הכל מרוכז במקום אחד</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(110,231,183,0.8)"><span style="color:#34d399">✓</span>חוזה נקרא אוטומטית</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(110,231,183,0.8)"><span style="color:#34d399">✓</span>חישוב מרחק לפי שח"ם</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(110,231,183,0.8)"><span style="color:#34d399">✓</span>סיכום מדויק בכל רגע</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(110,231,183,0.8)"><span style="color:#34d399">✓</span>מעקב תשלומים חי</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(110,231,183,0.8)"><span style="color:#34d399">✓</span>PDF מקצועי בלחיצה</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ CTA ═══════════════ -->
+  <section class="bg-hero noise" style="padding:5rem 0;position:relative;">
+    <div class="absolute inset-0" style="z-index:0">
+      <div style="position:absolute;top:0;right:15%;width:300px;height:300px;background:radial-gradient(circle,rgba(245,158,11,0.12),transparent 70%);border-radius:50%;filter:blur(60px)"></div>
+      <div style="position:absolute;bottom:0;left:15%;width:360px;height:360px;background:radial-gradient(circle,rgba(239,68,68,0.1),transparent 70%);border-radius:50%;filter:blur(60px)"></div>
+    </div>
+    <div class="relative" style="z-index:10;text-align:center;max-width:540px;margin:0 auto;padding:0 24px;">
+      <h2 style="font-size:clamp(1.8rem,4vw,2.5rem);font-weight:900;color:#fff;margin-bottom:0.75rem">מוכן להתנהל כמו מקצוען?</h2>
+      <p style="font-size:15px;color:rgba(255,255,255,0.45);margin-bottom:2rem">דקה אחת להקים פרויקט. שליטה מלאה מהיום.</p>
+      <a href="#" class="shimmer pulse-ring" style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff;font-weight:700;font-size:1.05rem;padding:16px 42px;border-radius:16px;text-decoration:none">
+        התחל עכשיו
+      </a>
+    </div>
+  </section>
+
+  <footer style="background:#1a0a04;padding:1.5rem;text-align:center">
+    <p style="font-size:11px;color:rgba(251,146,60,0.2)">כל הזכויות שמורות &copy; 2026</p>
+  </footer>
+
+  <script>
+    const obs = new IntersectionObserver(entries => {
+      entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible') })
+    }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+    document.querySelectorAll('.fade-up').forEach(el => obs.observe(el));
+  </script>
+</body>
+</html>
