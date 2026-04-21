@@ -49,43 +49,78 @@
 
     /* ── Responsive ── */
     .inner { max-width:1080px; margin:0 auto; padding:0 24px; }
+    /* ── Hero responsive ── */
+    @media(max-width:767px) {
+      .hero-layout { flex-direction:column-reverse !important; text-align:center; gap:1.5rem !important; padding-bottom:2rem; }
+      .hero-text { align-items:center; }
+      .hero-text p { margin-left:auto; margin-right:auto; }
+      .hero-text > div:last-child { justify-content:center; }
+      .hero-image { margin-top:1rem; }
+      .hero-image > div { width:clamp(220px,60vw,300px) !important; margin:0 auto; }
+    }
     @media(min-width:768px) { .md-grid-2 { grid-template-columns:1fr 1fr !important; } .md-grid-3 { grid-template-columns:1fr 1fr 1fr !important; } }
   </style>
 </head>
 <body>
 
   <!-- ═══════════════ HERO ═══════════════ -->
-  <section class="bg-hero noise" style="min-height:100vh;display:flex;align-items:center;overflow:hidden;position:relative;">
-    <div class="absolute inset-0" style="z-index:0;">
-      <div style="position:absolute;top:5%;right:5%;width:400px;height:400px;background:radial-gradient(circle,rgba(251,146,60,0.15),transparent 70%);border-radius:50%;filter:blur(60px)"></div>
-      <div style="position:absolute;bottom:5%;left:8%;width:500px;height:500px;background:radial-gradient(circle,rgba(239,68,68,0.1),transparent 70%);border-radius:50%;filter:blur(80px)"></div>
-    </div>
+  <section style="min-height:100vh;overflow:hidden;position:relative;background:#f97316;">
+    <!-- Orange top half -->
+    <div style="position:absolute;top:0;left:0;right:0;height:60%;background:linear-gradient(160deg,#ea580c,#f97316 40%,#fb923c 100%);z-index:0;"></div>
+    <!-- Dark bottom half -->
+    <div style="position:absolute;bottom:0;left:0;right:0;height:45%;background:linear-gradient(to top,#1a0a04,#2d1106 60%,transparent);z-index:1;"></div>
 
-    <div class="inner relative" style="z-index:10;padding:5rem 24px;text-align:center;">
-      <div class="glass-w" style="display:inline-flex;align-items:center;gap:8px;border-radius:9999px;padding:6px 20px;margin-bottom:2rem;animation:fadeIn 0.7s 0.2s both;">
-        <span style="width:7px;height:7px;border-radius:50%;background:#fbbf24;box-shadow:0 0 10px #fbbf24"></span>
-        <span style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.75);">מערכת ניהול הכנסות לשחקנים</span>
+    <div style="position:relative;z-index:10;max-width:1080px;margin:0 auto;padding:0 24px;min-height:100vh;display:flex;flex-direction:column;">
+
+      <!-- Top bar -->
+      <div style="padding:1.5rem 0;display:flex;justify-content:space-between;align-items:center;">
+        <div style="display:inline-flex;align-items:center;gap:8px;padding:6px 18px;border-radius:9999px;background:rgba(255,255,255,0.2);backdrop-filter:blur(10px);animation:fadeIn 0.7s 0.2s both;">
+          <span style="width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 10px #fff"></span>
+          <span style="font-size:13px;font-weight:600;color:#fff;">מערכת ניהול הכנסות לשחקנים</span>
+        </div>
       </div>
 
-      <h1 style="font-size:clamp(2.5rem,6vw,4.2rem);font-weight:900;color:#fff;line-height:1.12;margin-bottom:1.25rem;animation:fadeIn 0.7s 0.35s both;">
-        אתה יודע כמה<br>
-        <span style="background:linear-gradient(to left,#fde68a,#fdba74,#fb923c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">באמת מגיע לך?</span>
-      </h1>
+      <!-- Main hero content: text + image side by side -->
+      <div class="hero-layout" style="flex:1;display:flex;align-items:center;gap:2rem;">
 
-      <p style="font-size:1.1rem;line-height:1.7;color:rgba(255,255,255,0.55);max-width:540px;margin:0 auto 2.5rem;animation:fadeIn 0.7s 0.5s both;">
-        שחקנים מתנהלים עם פתקים, הודעות וואטסאפ וזיכרון — ומפסידים כסף בלי לדעת. בנינו מערכת שפותרת את זה.
-      </p>
+        <!-- Text side -->
+        <div class="hero-text" style="flex:1;min-width:0;">
+          <h1 style="font-size:clamp(2.2rem,5.5vw,3.8rem);font-weight:900;color:#fff;line-height:1.1;margin-bottom:1rem;animation:fadeIn 0.7s 0.35s both;">
+            את יודעת כמה<br>
+            <span style="color:#1a0a04;">באמת מגיע לך?</span>
+          </h1>
 
-      <a href="#s1" class="shimmer pulse-ring" style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff;font-weight:700;font-size:1.05rem;padding:15px 38px;border-radius:16px;text-decoration:none;animation:fadeIn 0.7s 0.65s both;">
-        ראה איך זה עובד ↓
-      </a>
+          <p style="font-size:1.05rem;line-height:1.7;color:rgba(255,255,255,0.8);max-width:440px;margin-bottom:2rem;animation:fadeIn 0.7s 0.5s both;">
+            שחקנים מתנהלים עם פתקים, הודעות וואטסאפ וזיכרון — ומפסידים כסף בלי לדעת. בנינו מערכת שפותרת את זה.
+          </p>
 
-      <div style="display:flex;justify-content:center;gap:3rem;margin-top:3.5rem;animation:fadeIn 0.7s 0.8s both;">
-        <div style="text-align:center"><div style="font-size:2rem;font-weight:800;color:#fff">100%</div><div style="font-size:11px;color:rgba(255,255,255,0.35)">דיוק בחישוב</div></div>
-        <div style="width:1px;background:rgba(255,255,255,0.1)"></div>
-        <div style="text-align:center"><div style="font-size:2rem;font-weight:800;color:#fff">0</div><div style="font-size:11px;color:rgba(255,255,255,0.35)">פתקים נחוצים</div></div>
-        <div style="width:1px;background:rgba(255,255,255,0.1)"></div>
-        <div style="text-align:center"><div style="font-size:2rem;font-weight:800;color:#fff">PDF</div><div style="font-size:11px;color:rgba(255,255,255,0.35)">בלחיצה אחת</div></div>
+          <a href="#s1" class="shimmer pulse-ring" style="display:inline-flex;align-items:center;gap:8px;background:#1a0a04;color:#fb923c;font-weight:700;font-size:1.05rem;padding:15px 38px;border-radius:16px;text-decoration:none;animation:fadeIn 0.7s 0.65s both;">
+            ראה איך זה עובד ↓
+          </a>
+
+          <div style="display:flex;gap:2.5rem;margin-top:2.5rem;animation:fadeIn 0.7s 0.8s both;">
+            <div><div style="font-size:1.8rem;font-weight:800;color:#fff">100%</div><div style="font-size:11px;color:rgba(255,255,255,0.5)">דיוק בחישוב</div></div>
+            <div style="width:1px;background:rgba(255,255,255,0.2)"></div>
+            <div><div style="font-size:1.8rem;font-weight:800;color:#fff">0</div><div style="font-size:11px;color:rgba(255,255,255,0.5)">פתקים נחוצים</div></div>
+            <div style="width:1px;background:rgba(255,255,255,0.2)"></div>
+            <div><div style="font-size:1.8rem;font-weight:800;color:#fff">PDF</div><div style="font-size:11px;color:rgba(255,255,255,0.5)">בלחיצה אחת</div></div>
+          </div>
+        </div>
+
+        <!-- Image side -->
+        <div class="hero-image" style="flex:0 0 auto;position:relative;animation:fadeIn 0.9s 0.4s both;">
+          <div style="position:relative;width:clamp(280px,30vw,420px);">
+            <!-- Glow behind image -->
+            <div style="position:absolute;inset:-20px;background:radial-gradient(circle,rgba(255,255,255,0.15),transparent 70%);border-radius:50%;filter:blur(30px);z-index:0;"></div>
+            <img src="yael-hero.png" alt="יעל אלקנה" style="position:relative;z-index:1;width:100%;border-radius:28px;object-fit:cover;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+            <!-- Name badge -->
+            <div style="position:absolute;bottom:16px;right:16px;z-index:2;background:rgba(0,0,0,0.6);backdrop-filter:blur(12px);padding:8px 18px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);">
+              <div style="font-size:15px;font-weight:700;color:#fff;">יעל אלקנה</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.5);">שחקנית</div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
