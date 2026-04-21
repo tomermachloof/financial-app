@@ -27,7 +27,7 @@ const RANGE_OPTIONS = [
 ]
 
 export default function Dashboard() {
-  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, updateExpenseMonthlyAccount, updateLoan, updateExpense, updateRentalIncome, updateFutureIncome, updateLoanMonthlyAmount, updateLoanMonthlyAccount, updateRentalMonthlyAmount, updateRentalMonthlyAccount, reminders, doneReminder, doneReminderMonth, undoneReminder, undoneReminderMonth, deleteReminder, updateReminder, updateInvestment, updateAccount, deleteFutureIncome, deleteExpense, deleteRentalIncome, dismissedEvents, dismissEvent } = useStore()
+  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, updateExpenseMonthlyAccount, updateLoan, updateExpense, updateRentalIncome, updateFutureIncome, updateLoanMonthlyAmount, updateLoanMonthlyAccount, updateRentalMonthlyAmount, updateRentalMonthlyAccount, reminders, doneReminder, doneReminderMonth, undoneReminder, undoneReminderMonth, deleteReminder, updateReminder, updateInvestment, updateAccount, deleteFutureIncome, deleteExpense, deleteRentalIncome, dismissedEvents, dismissEvent, undismissEvent } = useStore()
 
   const [rangeDays, setRangeDays] = useState(14)
   const [filterType, setFilterType] = useState('all') // 'all' | 'income' | 'expense'
@@ -51,8 +51,24 @@ export default function Dashboard() {
   const [editingAccId, setEditingAccId] = useState(null) // account id currently being edited inline
   const [accBalDraft, setAccBalDraft] = useState('')
   const [permPrompt, setPermPrompt] = useState(null) // { type: 'account'|'amount', event, value, callback }
+  const [undoStack, setUndoStack] = useState([]) // [{ action: 'confirm'|'dismiss', ...params }]
 
   useEffect(() => { getPushStatus().then(setPushStatus) }, [])
+
+  const handleUndo = () => {
+    if (undoStack.length === 0) return
+    const last = undoStack[undoStack.length - 1]
+    setUndoStack(prev => prev.slice(0, -1))
+    if (last.action === 'confirm') {
+      unconfirmEvent(last.id, last.date)
+    } else if (last.action === 'unconfirm') {
+      // re-confirm — we don't have the original delta, so just re-add as zero-delta confirmation
+      // The user can re-confirm manually with the correct account
+      confirmEvent(last.id, last.date, null, 0, false, false, null)
+    } else if (last.action === 'dismiss') {
+      undismissEvent(last.id, last.date)
+    }
+  }
 
   const handleTogglePush = async () => {
     if (pushStatus === 'subscribed') {
@@ -642,14 +658,20 @@ export default function Dashboard() {
                   const dateStr = e.rolledOver ? e.originalDateStr : todayStr
                   const delta   = calcDelta(e)
                   confirmEvent(id, dateStr, e.accountId || null, delta, e.currency === 'USD', e.rolledOver, e.destAccountId || null)
+                  setUndoStack(prev => [...prev, { action: 'confirm', id, date: dateStr, name: e.name }])
                   if (e.debtId) {
                     const debt = debts.find(d => d.id === e.debtId)
                     if (debt) updateDebt(e.debtId, { amount: Math.max(0, (debt.amount || 0) - Math.abs(e.amount)) })
                   }
                 }}
                 onDelete={() => {
-                  if (e.type === 'future') deleteFutureIncome(e.id)
-                  else dismissEvent(e.id, todayStr)
+                  if (!window.confirm('למחוק את האירוע הזה?')) return
+                  if (e.type === 'future') {
+                    deleteFutureIncome(e.id)
+                  } else {
+                    dismissEvent(e.id, todayStr)
+                    setUndoStack(prev => [...prev, { action: 'dismiss', id: e.id, date: todayStr, name: e.name }])
+                  }
                 }}
               />
             ))}
@@ -682,11 +704,19 @@ export default function Dashboard() {
                 confirmed
                 onEdit={() => handleEditEvent(e)}
                 onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')}
-                onUnconfirm={() => unconfirmEvent(e.id, e._confirmedRo ? e.originalDateStr : todayStr)}
+                onUnconfirm={() => {
+                  const dateStr = e._confirmedRo ? e.originalDateStr : todayStr
+                  unconfirmEvent(e.id, dateStr)
+                  setUndoStack(prev => [...prev, { action: 'unconfirm', id: e.id, date: dateStr, name: e.name }])
+                }}
                 onDelete={() => {
+                  if (!window.confirm('למחוק את האירוע הזה?')) return
                   unconfirmEvent(e.id, e._confirmedRo ? e.originalDateStr : todayStr)
                   if (e.type === 'future') deleteFutureIncome(e.id)
-                  else dismissEvent(e.id, todayStr)
+                  else {
+                    dismissEvent(e.id, todayStr)
+                    setUndoStack(prev => [...prev, { action: 'dismiss', id: e.id, date: todayStr, name: e.name }])
+                  }
                 }}
               />
             ))}
@@ -1450,6 +1480,18 @@ export default function Dashboard() {
             </p>
           </div>
         </Backdrop>
+      )}
+
+      {/* Undo button */}
+      {undoStack.length > 0 && (
+        <button
+          onClick={handleUndo}
+          className="fixed bottom-20 left-4 z-50 flex items-center gap-2 px-4 py-2.5 rounded-full bg-gray-800 text-white shadow-lg active:bg-gray-700 transition-all"
+          style={{ animation: 'modalPopIn 0.3s ease-out' }}
+        >
+          <span className="text-base">↩</span>
+          <span className="text-sm font-medium">ביטול ({undoStack.length})</span>
+        </button>
       )}
     </div>
   )

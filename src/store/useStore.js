@@ -375,6 +375,8 @@ const useStore = create(
       dismissedEvents: [], // [{ id, date }]
       dismissEvent: (id, date) =>
         set(s => ({ dismissedEvents: [...(s.dismissedEvents || []), { id, date }] })),
+      undismissEvent: (id, date) =>
+        set(s => ({ dismissedEvents: (s.dismissedEvents || []).filter(d => !(d.id === id && d.date === date)) })),
 
       // ── Reminders ─────────────────────────────
       reminders: [],

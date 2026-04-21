@@ -222,11 +222,12 @@ export const getMonthEvents = (year, month, loans, expenses, rentalIncome, futur
     if (!l.chargeDay) return
 
     // חשב תאריך סיום אם יש מידע מספיק
-    if (l.startDate && l.durationMonths) {
+    // הלוואה עם לוח סילוקין — תמיד להציג (עד שהמשתמש מוחק)
+    if (l.startDate && l.durationMonths && !l.paymentSchedule?.length) {
       const start    = new Date(l.startDate)
       const firstPay = new Date(start.getFullYear(), start.getMonth() + 1, l.chargeDay)
       if ((firstPay - start) / 86400000 < 15) firstPay.setMonth(firstPay.getMonth() + 1)
-      const endDate  = new Date(firstPay.getFullYear(), firstPay.getMonth() + l.durationMonths - 1, l.chargeDay)
+      const endDate = new Date(firstPay.getFullYear(), firstPay.getMonth() + l.durationMonths - 1, l.chargeDay)
       // אם החודש המבוקש אחרי תאריך הסיום — לא להציג
       const requestedDate = new Date(year, month - 1, l.chargeDay)
       if (requestedDate > endDate) return
@@ -355,12 +356,17 @@ export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, d
       let loanStartDate = null
       let loanEndDate = null
       if (!isIncome && isLoan && item.startDate) {
-        const start = new Date(item.startDate)
-        const firstPay = new Date(start.getFullYear(), start.getMonth() + 1, chargeDay)
-        if ((firstPay - start) / 86400000 < 15) firstPay.setMonth(firstPay.getMonth() + 1)
-        loanStartDate = firstPay
-        if (item.durationMonths) {
-          loanEndDate = new Date(firstPay.getFullYear(), firstPay.getMonth() + item.durationMonths - 1, chargeDay)
+        if (item.paymentSchedule?.length) {
+          // הלוואה עם לוח סילוקין — לא מגבילים עם startDate/endDate
+          // התשלומים מוגדרים בלוח, ההלוואה תופיע תמיד
+        } else {
+          const start = new Date(item.startDate)
+          const firstPay = new Date(start.getFullYear(), start.getMonth() + 1, chargeDay)
+          if ((firstPay - start) / 86400000 < 15) firstPay.setMonth(firstPay.getMonth() + 1)
+          loanStartDate = firstPay
+          if (item.durationMonths) {
+            loanEndDate = new Date(firstPay.getFullYear(), firstPay.getMonth() + item.durationMonths - 1, chargeDay)
+          }
         }
       }
 
