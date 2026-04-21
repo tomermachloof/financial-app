@@ -197,9 +197,10 @@ export default function CalendarPage() {
         return (
           <Backdrop
             className="fixed inset-0 z-[60] flex flex-col justify-end bg-black bg-opacity-30"
+            style={{ animation: 'modalBackdropIn 0.2s ease-out' }}
             onClose={() => setDetail(null)}
           >
-            <div className="relative bg-white rounded-t-2xl shadow-xl max-h-[70vh] flex flex-col">
+            <div className="relative bg-white rounded-t-2xl shadow-xl max-h-[70vh] flex flex-col" style={{ animation: 'modalSlideUp 0.35s cubic-bezier(.22,1,.36,1)' }}>
               <div className={`flex items-center justify-between px-4 py-3 rounded-t-2xl ${isIn ? 'bg-green-500' : 'bg-red-500'}`}>
                 <h3 className="font-bold text-white text-sm">{title}</h3>
                 <button onClick={() => setDetail(null)} className="text-white text-xl leading-none">×</button>

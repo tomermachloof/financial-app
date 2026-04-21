@@ -1,5 +1,25 @@
 import { useEffect, useRef } from 'react'
 
+// Inject modal animation keyframes once
+if (typeof document !== 'undefined' && !document.getElementById('modal-anim')) {
+  const s = document.createElement('style')
+  s.id = 'modal-anim'
+  s.textContent = `
+    @keyframes modalBackdropIn { from { opacity:0; } to { opacity:1; } }
+    @keyframes modalPopIn {
+      0%   { opacity:0; transform:scale(0.75) translateY(60px); }
+      50%  { opacity:1; transform:scale(1.03) translateY(-4px); }
+      100% { opacity:1; transform:scale(1) translateY(0); }
+    }
+    @keyframes modalSlideUp {
+      0%   { opacity:0; transform:translateY(100%); }
+      60%  { opacity:1; transform:translateY(-3%); }
+      100% { opacity:1; transform:translateY(0); }
+    }
+  `
+  document.head.appendChild(s)
+}
+
 export default function Modal({ title, onClose, onSave, children }) {
   // Track whether a drag-select started inside the modal body.
   // If it did, we must NOT close even if the user releases on the backdrop.
@@ -36,13 +56,13 @@ export default function Modal({ title, onClose, onSave, children }) {
   return (
     <div
       className="fixed inset-0 z-[60] flex items-start justify-center px-5 pb-4"
-      style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+      style={{ backgroundColor: 'rgba(0,0,0,0.5)', animation: 'modalBackdropIn 0.2s ease-out' }}
       onMouseDown={handleBackdropPointerDown}
       onMouseUp={handleBackdropPointerUp}
       onTouchStart={handleBackdropPointerDown}
       onTouchEnd={handleBackdropPointerUp}
     >
-      <div className="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl overflow-hidden mt-20" onKeyDown={handleKeyDown}>
+      <div className="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl overflow-hidden mt-20 outline-none border-2 border-blue-400" style={{ animation: 'modalPopIn 0.35s cubic-bezier(.22,1,.36,1)' }} onKeyDown={handleKeyDown}>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-100">
           <h2 className="text-lg font-bold text-gray-800">{title}</h2>
@@ -66,7 +86,7 @@ export default function Modal({ title, onClose, onSave, children }) {
 
 export function Field({ label, children, hint }) {
   return (
-    <div className="mb-4 overflow-hidden">
+    <div className="mb-4">
       <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
       {children}
       {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
@@ -91,7 +111,7 @@ export function Input({ value, onChange, type = 'text', placeholder, min, step, 
       placeholder={placeholder}
       min={min}
       step={step}
-      className="w-full min-w-0 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
+      className="w-full min-w-0 border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500 bg-gray-50"
       style={{ maxWidth: '100%', boxSizing: 'border-box', WebkitAppearance: 'none', ...style }}
     />
   )
@@ -102,7 +122,7 @@ export function Select({ value, onChange, options }) {
     <select
       value={value ?? ''}
       onChange={e => onChange(e.target.value)}
-      className="w-full min-w-0 max-w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 box-border"
+      className="w-full min-w-0 max-w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500 bg-gray-50 box-border"
     >
       {options.map(o => (
         <option key={o.value} value={o.value}>{o.label}</option>
@@ -118,7 +138,7 @@ export function Textarea({ value, onChange, placeholder }) {
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
       rows={2}
-      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 resize-none"
+      className="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500 bg-gray-50 resize-none"
     />
   )
 }

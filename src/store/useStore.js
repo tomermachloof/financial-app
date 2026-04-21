@@ -101,6 +101,22 @@ const useStore = create(
       // ── Loans ─────────────────────────────────
       updateLoan: (id, updates) =>
         set(s => ({ loans: s.loans.map(l => l.id === id ? { ...l, ...updates, _updatedAt: Date.now() } : l) })),
+      updateLoanMonthlyAmount: (id, monthKey, amount) =>
+        set(s => ({
+          loans: s.loans.map(l => l.id !== id ? l : {
+            ...l,
+            monthlyAmounts: { ...(l.monthlyAmounts || {}), [monthKey]: amount },
+            _updatedAt: Date.now(),
+          })
+        })),
+      updateLoanMonthlyAccount: (id, monthKey, accountId) =>
+        set(s => ({
+          loans: s.loans.map(l => l.id !== id ? l : {
+            ...l,
+            monthlyAccounts: { ...(l.monthlyAccounts || {}), [monthKey]: accountId },
+            _updatedAt: Date.now(),
+          })
+        })),
       addLoan: (loan) =>
         set(s => {
           const newState = { loans: [...s.loans, { ...loan, id: 'l' + Date.now() }] }
@@ -142,6 +158,13 @@ const useStore = create(
             monthlyAmounts: { ...(e.monthlyAmounts || {}), [monthKey]: amount }
           })
         })),
+      updateExpenseMonthlyAccount: (id, monthKey, accountId) =>
+        set(s => ({
+          expenses: s.expenses.map(e => e.id !== id ? e : {
+            ...e,
+            monthlyAccounts: { ...(e.monthlyAccounts || {}), [monthKey]: accountId }
+          })
+        })),
       addExpense: (expense) =>
         set(s => ({ expenses: [...s.expenses, { ...expense, id: 'e' + Date.now() }] })),
       deleteExpense: (id) =>
@@ -157,6 +180,20 @@ const useStore = create(
       // ── Rental Income ─────────────────────────
       updateRentalIncome: (id, updates) =>
         set(s => ({ rentalIncome: s.rentalIncome.map(r => r.id === id ? { ...r, ...updates } : r) })),
+      updateRentalMonthlyAmount: (id, monthKey, amount) =>
+        set(s => ({
+          rentalIncome: s.rentalIncome.map(r => r.id !== id ? r : {
+            ...r,
+            monthlyAmounts: { ...(r.monthlyAmounts || {}), [monthKey]: amount }
+          })
+        })),
+      updateRentalMonthlyAccount: (id, monthKey, accountId) =>
+        set(s => ({
+          rentalIncome: s.rentalIncome.map(r => r.id !== id ? r : {
+            ...r,
+            monthlyAccounts: { ...(r.monthlyAccounts || {}), [monthKey]: accountId }
+          })
+        })),
       addRentalIncome: (item) =>
         set(s => ({ rentalIncome: [...s.rentalIncome, { ...item, id: 'r' + Date.now() }] })),
       deleteRentalIncome: (id) =>
@@ -178,7 +215,7 @@ const useStore = create(
           return { futureIncome: [item, ...s.futureIncome.filter(f => f.id !== id)] }
         }),
       addFutureIncome: (item) =>
-        set(s => ({ futureIncome: [...s.futureIncome, { ...item, id: 'fi' + Date.now(), status: 'pending' }] })),
+        set(s => ({ futureIncome: [{ ...item, id: 'fi' + Date.now(), status: 'pending' }, ...s.futureIncome] })),
       deleteFutureIncome: (id) =>
         set(s => ({
           futureIncome: s.futureIncome.filter(f => f.id !== id),
@@ -361,51 +398,88 @@ const useStore = create(
       confirmedEvents: [],
       confirmEvent: (id, date, accountId, delta, isUSD, ro, destAccountId) =>
         set(s => {
-          // Stamp the confirmation with the day the user actually clicked confirm,
-          // in the same "dashboard date" format everything else uses. The Dashboard
-          // uses this to hide rolled-over confirmations once the day advances.
           const _now = new Date(); _now.setHours(0, 0, 0, 0)
           const confirmedOn = _now.toISOString().split('T')[0]
           const newConfirmed = [...s.confirmedEvents, { id, date, accountId, delta, isUSD, confirmedOn, ...(ro ? { _ro: true } : {}), ...(destAccountId ? { destAccountId } : {}) }]
-          if (!accountId || !delta) return { confirmedEvents: newConfirmed }
-          let accounts = s.accounts.map(a => {
-            if (a.id !== accountId) return a
-            if (isUSD) return { ...a, usdBalance: (a.usdBalance || 0) + delta }
-            return { ...a, balance: (a.balance || 0) + delta }
-          })
+          let accounts = s.accounts
           let investments = s.investments
-          if (destAccountId) {
-            const credit = Math.abs(delta)
-            if (destAccountId.startsWith('inv:')) {
-              const invId = destAccountId.slice(4)
-              investments = s.investments.map(i => i.id !== invId ? i : { ...i, value: (i.value || 0) + credit })
-            } else {
-              accounts = accounts.map(a => a.id !== destAccountId ? a : { ...a, balance: (a.balance || 0) + credit })
+          // עדכון יתרות חשבונות (רק אם יש חשבון ו-delta)
+          if (accountId && delta) {
+            accounts = s.accounts.map(a => {
+              if (a.id !== accountId) return a
+              if (isUSD) return { ...a, usdBalance: (a.usdBalance || 0) + delta }
+              return { ...a, balance: (a.balance || 0) + delta }
+            })
+            if (destAccountId) {
+              const credit = Math.abs(delta)
+              if (destAccountId.startsWith('inv:')) {
+                const invId = destAccountId.slice(4)
+                investments = s.investments.map(i => i.id !== invId ? i : { ...i, value: (i.value || 0) + credit })
+              } else {
+                accounts = accounts.map(a => a.id !== destAccountId ? a : { ...a, balance: (a.balance || 0) + credit })
+              }
             }
           }
-          return { confirmedEvents: newConfirmed, accounts, investments }
+          // עדכון הלוואה — הפחתת יתרה כשמאשרים תשלום (תמיד, גם אם delta=0)
+          let loans = s.loans
+          if (id && String(id).startsWith('l')) {
+            const loan = s.loans.find(l => l.id === id)
+            if (loan) {
+              // סכום התשלום: או מה-delta, או מהתשלום החודשי של ההלוואה
+              const paymentAmt = Math.abs(delta) || loan.monthlyPayment || 0
+              const currentBalance = loan.balanceOverride != null
+                ? loan.balanceOverride
+                : (loan.totalAmount || 0) - ((loan.paidCount || 0) * (loan.monthlyPayment || 0))
+              loans = s.loans.map(l => l.id !== id ? l : {
+                ...l,
+                paidCount: (l.paidCount || 0) + 1,
+                balanceOverride: Math.max(0, Math.round(currentBalance - paymentAmt)),
+                _updatedAt: Date.now(),
+              })
+            }
+          }
+          return { confirmedEvents: newConfirmed, accounts, investments, loans }
         }),
       unconfirmEvent: (id, date) =>
         set(s => {
           const ev = s.confirmedEvents.find(e => e.id === id && e.date === date)
           const newConfirmed = s.confirmedEvents.filter(e => !(e.id === id && e.date === date))
-          if (!ev || !ev.accountId || !ev.delta) return { confirmedEvents: newConfirmed }
-          let accounts = s.accounts.map(a => {
-            if (a.id !== ev.accountId) return a
-            if (ev.isUSD) return { ...a, usdBalance: (a.usdBalance || 0) - ev.delta }
-            return { ...a, balance: (a.balance || 0) - ev.delta }
-          })
+          if (!ev) return { confirmedEvents: newConfirmed }
+          let accounts = s.accounts
           let investments = s.investments
-          if (ev.destAccountId) {
-            const credit = Math.abs(ev.delta)
-            if (ev.destAccountId.startsWith('inv:')) {
-              const invId = ev.destAccountId.slice(4)
-              investments = s.investments.map(i => i.id !== invId ? i : { ...i, value: (i.value || 0) - credit })
-            } else {
-              accounts = accounts.map(a => a.id !== ev.destAccountId ? a : { ...a, balance: (a.balance || 0) - credit })
+          // החזרת יתרות חשבונות (רק אם יש חשבון ו-delta)
+          if (ev.accountId && ev.delta) {
+            accounts = s.accounts.map(a => {
+              if (a.id !== ev.accountId) return a
+              if (ev.isUSD) return { ...a, usdBalance: (a.usdBalance || 0) - ev.delta }
+              return { ...a, balance: (a.balance || 0) - ev.delta }
+            })
+            if (ev.destAccountId) {
+              const credit = Math.abs(ev.delta)
+              if (ev.destAccountId.startsWith('inv:')) {
+                const invId = ev.destAccountId.slice(4)
+                investments = s.investments.map(i => i.id !== invId ? i : { ...i, value: (i.value || 0) - credit })
+              } else {
+                accounts = accounts.map(a => a.id !== ev.destAccountId ? a : { ...a, balance: (a.balance || 0) - credit })
+              }
             }
           }
-          return { confirmedEvents: newConfirmed, accounts, investments }
+          // החזרת יתרת הלוואה כשמבטלים אישור תשלום
+          let loans = s.loans
+          if (ev.id && String(ev.id).startsWith('l')) {
+            const loan = s.loans.find(l => l.id === ev.id)
+            if (loan) {
+              const paymentAmt = Math.abs(ev.delta) || loan.monthlyPayment || 0
+              const currentBalance = loan.balanceOverride != null ? loan.balanceOverride : 0
+              loans = s.loans.map(l => l.id !== ev.id ? l : {
+                ...l,
+                paidCount: Math.max(0, (l.paidCount || 0) - 1),
+                balanceOverride: currentBalance + paymentAmt,
+                _updatedAt: Date.now(),
+              })
+            }
+          }
+          return { confirmedEvents: newConfirmed, accounts, investments, loans }
         }),
 
       // ── Settings ──────────────────────────────
@@ -436,7 +510,6 @@ const useStore = create(
           'l4':  { accountId: 'ba1' }, 'l5':  { accountId: 'ba2' },
           'l6':  { accountId: 'ba6' }, 'l7':  { accountId: 'ba6' },
           'l8':  { accountId: 'ba6' }, 'l9':  { accountId: 'ba2' },
-          'l10': { accountId: 'ba10' }, 'l11': { accountId: 'ba9' },
           'l1':  { balanceOverride: 640000 },
           'l12': { accountId: 'ba1' }, 'l15': { accountId: 'ba12' },
           'l16': { accountId: 'ba12' },
@@ -576,10 +649,8 @@ const useStore = create(
           })(),
           friendReminders: state.friendReminders || [],
           loans: (() => {
-            const base = (state.loans || []).filter(l => l.id !== 'l13').map(l => {
+            const base = (state.loans || []).filter(l => l.id !== 'l13' && l.id !== 'l10' && l.id !== 'l11' && l.name !== 'דיסקונט תומר' && l.name !== 'דיסקונט יעל').map(l => {
               if (l.id === 'l4')  return { ...l, totalAmount: 75000, monthlyPayment: 809, startDate: '2021-11-07' }
-              if (l.id === 'l10') return { ...l, totalAmount: 30000, startDate: '2026-03-20' }
-              if (l.id === 'l11') return { ...l, totalAmount: 30000, startDate: '2026-03-20' }
               if (l.id === 'l12') return { ...l, totalAmount: 40000, monthlyPayment: 666, chargeDay: 10, durationMonths: 60, interestRate: 0, startDate: '2024-02-28' }
               if (l.id === 'l3')  return { ...l, totalAmount: 100000, monthlyPayment: 1920, interestRate: 6.0, interestType: 'fixed', startDate: '2021-11-18' }
               if (l.id === 'l2')  return { ...l, totalAmount: null, monthlyPayment: 5793, durationMonths: null, startDate: null, balanceOverride: 530361 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import useStore from '../store/useStore'
 import Modal, { Field, Input, Select, Textarea, SaveButton, DeleteButton } from '../components/Modal'
@@ -7,6 +7,7 @@ import Backdrop from '../components/Backdrop'
 import PartialPaymentModal from '../components/PartialPaymentModal'
 import { exportIncomeReport } from '../lib/exportIncomeReport'
 import { calcDistanceFromHome } from '../lib/distanceCalc'
+import { analyzeContractDoc } from '../lib/analyzeContractDoc'
 import { formatILS, formatDate, daysUntil, urgencyClass, urgencyLabel } from '../utils/formatters'
 
 // ── Helpers: time and amount calculations ────────────────────────────
@@ -142,11 +143,27 @@ const EMPTY_INCOME = {
   sessions: [], agentCommission: false, addVat: false, invoiceSent: false, invoiceFile: null, invoiceFileName: null,
   // בעלים של הפרויקט — 'tomer' או 'yael'. ברירת מחדל לפרויקט חדש: תומר
   owner: 'tomer',
-  // ── Project rate defaults ──
+  // סוג פרויקט — 'film' (קולנוע/טלוויזיה) או 'theater' (תיאטרון)
+  projectType: 'film',
+  // ── Project rate defaults (film) ──
   photoDayRate: '',
   rehearsalPct12: 15,
   rehearsalPct3plus: 30,
   overtimeTiers: DEFAULT_OT_TIERS,
+  // ── Theater rate defaults ──
+  theaterShowPrice: '',
+  theaterMonthlyRehearsal: '',
+  theaterRehearsalTotal: '',
+  theaterPostRehearsal: '',
+  // ── Commercial (campaign) fields ──
+  commercialClient: '',
+  commercialPlatform: '',
+  commercialShootDaysContract: '',
+  // ── Dubbing fields ──
+  dubbingProductionType: 'major', // 'major' | 'independent' | 'tv'
+  dubbingFirstHourRate: 300,
+  dubbingHalfHourRate: 150,
+  dubbingSongBonus: 150,
 }
 const EMPTY_NEW_SESS = {
   type: 'יום צילום', date: '',
@@ -166,6 +183,16 @@ const EMPTY_NEW_SESS = {
   setLocation: '',
   setDistanceKm: null,
   setIsAboveThreshold: null,
+  // Theater fields
+  theaterLocation: '',
+  theaterMonth: '',
+  // Commercial fields
+  commercialNote: '',
+  // Dubbing fields
+  dubbingStart: '',        // recording start time HH:MM
+  dubbingEnd: '',          // recording end time HH:MM
+  dubbingHours: '',        // auto-calculated or manual override
+  dubbingHasSong: false,   // solo/duet song bonus
 }
 const unitLabel = t => t === 'יום צילום' ? 'ימים' : 'שעות'
 
@@ -194,6 +221,14 @@ const formatSessionDetail = (ws) => {
     }
     return '—'
   }
+  // Theater types
+  if (ws.type === 'הצגה') return ws.theaterLocation ? `📍 ${ws.theaterLocation}` : 'הצגה'
+  if (ws.type === 'חזרות חודשיות') return ws.theaterMonth || 'חודש'
+  if (ws.type === 'חזרה אחרי עלייה') return 'חזרה'
+  if (ws.type === 'צילומי טריילר') return 'צילומי טריילר'
+  if (ws.type === 'צילומי הצגה') return 'צילומי הצגה'
+  // Commercial types
+  if (COMMERCIAL_TYPE_LABELS[ws.type]) return ws.commercialNote || COMMERCIAL_TYPE_LABELS[ws.type]
   // Other / legacy
   if (ws.quantity != null && ws.ratePerUnit != null) {
     return `${ws.quantity} ${unitLabel(ws.type)} × ${formatILS(ws.ratePerUnit)}`
@@ -201,12 +236,60 @@ const formatSessionDetail = (ws) => {
   return '—'
 }
 
-const SESSION_TYPES = [
+const FILM_SESSION_TYPES = [
   { value: 'יום צילום', label: 'יום צילום' },
   { value: 'חזרות',     label: 'חזרות'     },
   { value: 'מדידות',    label: 'מדידות'    },
   { value: 'אחר',       label: 'אחר'       },
 ]
+const THEATER_SESSION_TYPES = [
+  { value: 'הצגה',              label: '🎭 הצגה' },
+  { value: 'חזרות חודשיות',     label: '📅 חזרות חודשיות' },
+  { value: 'חזרה אחרי עלייה',  label: '🔄 חזרה' },
+  { value: 'צילומי טריילר',     label: '🎬 צילומי טריילר' },
+  { value: 'צילומי הצגה',       label: '🎥 צילומי הצגה' },
+  { value: 'אחר',               label: 'אחר' },
+]
+const COMMERCIAL_SESSION_TYPES = [
+  { value: 'צילום',          label: '📷 צילום' },
+  { value: 'מדידות מסחרי',   label: '📏 מדידות' },
+  { value: 'פגישה',          label: '🤝 פגישה' },
+  { value: 'חזרה מסחרי',     label: '🔄 חזרה' },
+  { value: 'עריכה / פוסט',   label: '✂️ עריכה / פוסט' },
+  { value: 'העלאת תוכן',     label: '📤 העלאת תוכן' },
+  { value: 'אחר',            label: 'אחר' },
+]
+const DUBBING_SESSION_TYPES = [
+  { value: 'הקלטה',  label: '🎙️ הקלטה' },
+  { value: 'השלמה',  label: '🔄 השלמה' },
+  { value: 'אחר',    label: 'אחר' },
+]
+const DUBBING_RATE_PRESETS = {
+  major:       { firstHour: 300, halfHour: 150, songBonus: 150 },
+  independent: { firstHour: 200, halfHour: 100, songBonus: 150 },
+  tv:          { firstHour: 150, halfHour: 75,  songBonus: 150 },
+}
+function computeDubbingAmount(hours, firstHourRate, halfHourRate, hasSong, songBonus) {
+  if (!hours || hours <= 0) return 0
+  // First hour
+  let total = firstHourRate
+  // Additional half-hours (round up to next half-hour)
+  if (hours > 1) {
+    const extra = hours - 1
+    const halfHours = Math.ceil(extra / 0.5)
+    total += halfHours * halfHourRate
+  }
+  if (hasSong) total += songBonus
+  return total
+}
+const COMMERCIAL_TYPE_LABELS = {
+  'צילום': '📷 צילום',
+  'מדידות מסחרי': '📏 מדידות',
+  'פגישה': '🤝 פגישה',
+  'חזרה מסחרי': '🔄 חזרה',
+  'עריכה / פוסט': '✂️ עריכה / פוסט',
+  'העלאת תוכן': '📤 העלאת תוכן',
+}
 const EMPTY_SESSION = { type: 'יום צילום', date: '', amount: '', notes: '' }
 
 export default function IncomePage() {
@@ -239,6 +322,49 @@ export default function IncomePage() {
   const [newSess,      setNewSess]      = useState(EMPTY_NEW_SESS)
   const [distLoading,  setDistLoading]  = useState(false)
   const [showPartialModal, setShowPartialModal] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
+  const contractInputRef = useRef(null)
+
+  const handleContractFile = async (file) => {
+    if (!file) return
+    setAnalyzing(true)
+    try {
+      const result = await analyzeContractDoc(file, form.projectType)
+      if (result.error) {
+        alert('שגיאה בניתוח: ' + result.error)
+        setAnalyzing(false)
+        return
+      }
+      // מילוי אוטומטי של השדות שחזרו מהניתוח
+      setForm(prev => {
+        const updated = { ...prev }
+        if (result.name) updated.name = result.name
+        if (result.amount != null) updated.amount = result.amount
+        if (result.expectedDate) updated.expectedDate = result.expectedDate
+        if (result.notes) updated.notes = result.notes
+        // agentCommission ו-addVat נשארים ידניים — לא ממלאים מהחוזה
+        // Film fields
+        if (result.photoDayRate != null) updated.photoDayRate = result.photoDayRate
+        if (result.rehearsalPct12 != null) updated.rehearsalPct12 = result.rehearsalPct12
+        if (result.rehearsalPct3plus != null) updated.rehearsalPct3plus = result.rehearsalPct3plus
+        if (result.overtimeTiers) updated.overtimeTiers = result.overtimeTiers
+        // Theater fields
+        if (result.theaterShowPrice != null) updated.theaterShowPrice = result.theaterShowPrice
+        if (result.theaterMonthlyRehearsal != null) updated.theaterMonthlyRehearsal = result.theaterMonthlyRehearsal
+        if (result.theaterRehearsalTotal != null) updated.theaterRehearsalTotal = result.theaterRehearsalTotal
+        if (result.theaterPostRehearsal != null) updated.theaterPostRehearsal = result.theaterPostRehearsal
+        // Commercial fields
+        if (result.commercialClient) updated.commercialClient = result.commercialClient
+        if (result.commercialPlatform) updated.commercialPlatform = result.commercialPlatform
+        if (result.commercialShootDaysContract != null) updated.commercialShootDaysContract = result.commercialShootDaysContract
+        return updated
+      })
+    } catch (err) {
+      alert('שגיאה: ' + (err.message || err))
+    }
+    setAnalyzing(false)
+  }
 
   // ── Helper: files תאימות לאחור לשדה invoiceFile הישן ──
   const getFilesFromItem = (it) => {
@@ -274,7 +400,15 @@ export default function IncomePage() {
   const location = useLocation()
   const navigate = useNavigate()
 
-  const openAdd  = () => { setForm({ ...EMPTY_INCOME }); setNewSess(EMPTY_NEW_SESS); setModal('add') }
+  const [showTypePicker, setShowTypePicker] = useState(false)
+  const [pickerOwner, setPickerOwner] = useState('tomer')
+  const openAdd  = (projectType = 'film', owner = 'tomer') => {
+    const defaultSessType = projectType === 'commercial' ? 'צילום' : projectType === 'theater' ? 'הצגה' : projectType === 'dubbing' ? 'הקלטה' : 'יום צילום'
+    setForm({ ...EMPTY_INCOME, projectType, owner })
+    setNewSess({ ...EMPTY_NEW_SESS, type: defaultSessType })
+    setModal('add')
+    setShowTypePicker(false)
+  }
   const openEdit = (item) => {
     const sessions = item.sessions || []
     setForm({
@@ -284,11 +418,21 @@ export default function IncomePage() {
       sessions,
       // בעלים — לפרויקטים קיימים ללא שיוך נשאר ריק עד בחירה ידנית
       owner: item.owner || '',
+      projectType: item.projectType || 'film',
       // Ensure rate fields exist even on old income items
       photoDayRate: item.photoDayRate ?? '',
       rehearsalPct12: item.rehearsalPct12 ?? 15,
       rehearsalPct3plus: item.rehearsalPct3plus ?? 30,
       overtimeTiers: item.overtimeTiers || DEFAULT_OT_TIERS,
+      // Theater rates
+      theaterShowPrice: item.theaterShowPrice ?? '',
+      theaterMonthlyRehearsal: item.theaterMonthlyRehearsal ?? '',
+      theaterRehearsalTotal: item.theaterRehearsalTotal ?? '',
+      theaterPostRehearsal: item.theaterPostRehearsal ?? '',
+      // Commercial fields
+      commercialClient: item.commercialClient ?? '',
+      commercialPlatform: item.commercialPlatform ?? '',
+      commercialShootDaysContract: item.commercialShootDaysContract ?? '',
     })
     setNewSess(EMPTY_NEW_SESS)
     setModal({ item })
@@ -304,6 +448,16 @@ export default function IncomePage() {
     navigate('/income', { replace: true, state: {} })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state?.openEditId])
+
+  // Open new project from QuickAdd navigation
+  useEffect(() => {
+    const projectType = location.state?.newProjectType
+    if (!projectType) return
+    const owner = location.state?.newProjectOwner || 'tomer'
+    openAdd(projectType, owner)
+    navigate('/income', { replace: true, state: {} })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.newProjectType])
 
   // Effective work hours for the photo day session preview:
   // manual override (workHours field) takes precedence, otherwise computed from shoot times
@@ -330,6 +484,16 @@ export default function IncomePage() {
     const t = newSess.type
     const id = editingId || ('ws' + Date.now())
 
+    // ── Commercial types — documentation only, no amount calc ──
+    if (form.projectType === 'commercial' && t !== 'אחר') {
+      return {
+        id,
+        type: t,
+        date: newSess.date || null,
+        commercialNote: newSess.commercialNote || null,
+        amount: 0,
+      }
+    }
     if (t === 'יום צילום') {
       const shootH = getEffectiveWorkHours()
       const travelH = getTravelHours()
@@ -383,6 +547,69 @@ export default function IncomePage() {
         amount: finalAmt,
       }
     }
+    // ── Theater: חזרות חודשיות — סכום ידני תמיד (מול סכום כולל חזרות) ──
+    if (t === 'חזרות חודשיות') {
+      const finalAmt = Number(newSess.manualAmount) || 0
+      if (finalAmt <= 0) return null
+      return {
+        id,
+        type: t,
+        date: newSess.date || null,
+        theaterMonth: newSess.theaterMonth || null,
+        amount: finalAmt,
+      }
+    }
+    // ── Theater types ──
+    const theaterTypes = {
+      'הצגה':              'theaterShowPrice',
+      'חזרה אחרי עלייה':  'theaterPostRehearsal',
+      'צילומי טריילר':     'theaterPostRehearsal',
+      'צילומי הצגה':       'theaterPostRehearsal',
+    }
+    if (theaterTypes[t]) {
+      const price = Number(form[theaterTypes[t]]) || 0
+      const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : price
+      if (finalAmt <= 0) return null
+      return {
+        id,
+        type: t,
+        date: newSess.date || null,
+        theaterLocation: newSess.theaterLocation || null,
+        theaterMonth: newSess.theaterMonth || null,
+        manualMode: !!newSess.manualMode,
+        manualAmount: newSess.manualMode ? (Number(newSess.manualAmount) || 0) : null,
+        amount: finalAmt,
+      }
+    }
+    // ── Dubbing: הקלטה / השלמה ──
+    if (form.projectType === 'dubbing' && (t === 'הקלטה' || t === 'השלמה')) {
+      const autoH = (newSess.dubbingStart && newSess.dubbingEnd)
+        ? roundUpQuarter(timeDiffHours(newSess.dubbingStart, newSess.dubbingEnd))
+        : 0
+      const h = newSess.dubbingHours !== '' ? Number(newSess.dubbingHours) : autoH
+      const firstHR = Number(form.dubbingFirstHourRate) || 0
+      const halfHR = Number(form.dubbingHalfHourRate) || 0
+      const hasSong = !!newSess.dubbingHasSong
+      const songB = Number(form.dubbingSongBonus) || 0
+      const computed = computeDubbingAmount(h, firstHR, halfHR, hasSong, songB)
+      const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : computed
+      if (finalAmt <= 0) return null
+      return {
+        id,
+        type: t,
+        date: newSess.date || null,
+        dubbingStart: newSess.dubbingStart || null,
+        dubbingEnd: newSess.dubbingEnd || null,
+        dubbingHours: h,
+        dubbingHasSong: hasSong,
+        dubbingFirstHourRateUsed: firstHR,
+        dubbingHalfHourRateUsed: halfHR,
+        dubbingSongBonusUsed: songB,
+        manualMode: !!newSess.manualMode,
+        manualAmount: newSess.manualMode ? (Number(newSess.manualAmount) || 0) : null,
+        amount: finalAmt,
+      }
+    }
     // 'אחר' — לפי כמות × תעריף
     if (!newSess.rate) return null
     const qty  = Number(newSess.quantity) || 1
@@ -399,6 +626,10 @@ export default function IncomePage() {
 
   // מזהה של רישום שנמצא כרגע בעריכה — אם לא ריק, הוא יחליף את הישן במקומו
   const [editingSessId, setEditingSessId] = useState(null)
+  // Auto-open next time picker after selecting start time
+  const [autoOpenEnd, setAutoOpenEnd] = useState(false)
+  const [autoOpenReturn, setAutoOpenReturn] = useState(false)
+  const [autoOpenDubbingEnd, setAutoOpenDubbingEnd] = useState(false)
 
   const addSessToForm = () => {
     const sess = buildSessionFromNewSess(editingSessId)
@@ -408,10 +639,12 @@ export default function IncomePage() {
       ? base.map(w => w.id === editingSessId ? sess : w)
       : [...base, sess]
     const totalAmount = sessions.reduce((s, w) => s + (w.amount || 0), 0)
-    setForm(f => ({ ...f, sessions, amount: totalAmount }))
+    // מסחרי: לא לדרוס את הסכום הקבוע עם סכום הרישומים (שהוא 0)
+    const updatedAmount = form.projectType === 'commercial' ? form.amount : totalAmount
+    setForm(f => ({ ...f, sessions, amount: updatedAmount }))
     // שמירה מיידית לענן במצב עריכה — שלא נאבד רישום אם הדף ייסגר/ייטען מחדש
     if (modal !== 'add' && modal?.item) {
-      updateFutureIncome(modal.item.id, { sessions, amount: totalAmount })
+      updateFutureIncome(modal.item.id, form.projectType === 'commercial' ? { sessions } : { sessions, amount: totalAmount })
     }
     setNewSess(EMPTY_NEW_SESS)
     setEditingSessId(null)
@@ -432,11 +665,20 @@ export default function IncomePage() {
       quantity:   ws.quantity  != null ? String(ws.quantity)  : '1',
       rate:       ws.ratePerUnit != null ? String(ws.ratePerUnit) : '',
       manualMode: !!ws.manualMode,
-      manualAmount: ws.manualAmount != null ? String(ws.manualAmount) : '',
+      manualAmount: ws.type === 'חזרות חודשיות'
+        ? (ws.amount != null ? String(ws.amount) : '')
+        : (ws.manualAmount != null ? String(ws.manualAmount) : ''),
       useTravelForCalc: !!ws.useTravelForCalc,
       setLocation: ws.setLocation || '',
       setDistanceKm: ws.setDistanceKm ?? null,
       setIsAboveThreshold: ws.setIsAboveThreshold ?? null,
+      theaterLocation: ws.theaterLocation || '',
+      theaterMonth: ws.theaterMonth || '',
+      commercialNote: ws.commercialNote || '',
+      dubbingStart: ws.dubbingStart || '',
+      dubbingEnd: ws.dubbingEnd || '',
+      dubbingHours: ws.dubbingHours != null ? String(ws.dubbingHours) : '',
+      dubbingHasSong: !!ws.dubbingHasSong,
     })
   }
 
@@ -447,10 +689,10 @@ export default function IncomePage() {
   const removeSessFromForm = (id) => {
     const sessions = (form.sessions || []).filter(w => w.id !== id)
     const totalAmount = sessions.reduce((s, w) => s + (w.amount || 0), 0)
-    setForm(f => ({ ...f, sessions, amount: totalAmount }))
+    setForm(f => ({ ...f, sessions, ...(form.projectType === 'commercial' ? {} : { amount: totalAmount }) }))
     // שמירה מיידית לענן במצב עריכה
     if (modal !== 'add' && modal?.item) {
-      updateFutureIncome(modal.item.id, { sessions, amount: totalAmount })
+      updateFutureIncome(modal.item.id, form.projectType === 'commercial' ? { sessions } : { sessions, amount: totalAmount })
     }
     // אם היינו בעריכה של הרישום שנמחק — לצאת ממצב עריכה
     if (editingSessId === id) {
@@ -470,9 +712,12 @@ export default function IncomePage() {
         : [...sessions, pending]
     }
     const totalFromSessions = sessions.reduce((s, w) => s + (w.amount || 0), 0)
-    const finalAmount = sessions.length > 0
-      ? totalFromSessions
-      : (form.amount === '' ? null : Number(form.amount))
+    // מסחרי: הסכום קבוע מראש, לא מחושב מהרישומים (רישומים הם תיעוד בלבד)
+    const finalAmount = form.projectType === 'commercial'
+      ? (form.amount === '' ? null : Number(form.amount))
+      : sessions.length > 0
+        ? totalFromSessions
+        : (form.amount === '' ? null : Number(form.amount))
     const data = {
       ...form,
       sessions,
@@ -524,7 +769,7 @@ export default function IncomePage() {
       <div className="bg-white border-b border-gray-100 px-4 pt-4 pb-4 sticky top-0 z-10">
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-xl font-bold text-gray-800">הכנסות צפויות</h1>
-          <button onClick={openAdd} className="bg-green-600 text-white text-sm font-semibold px-4 py-2 rounded-xl">
+          <button onClick={() => setShowTypePicker(true)} className="bg-green-600 text-white text-sm font-semibold px-4 py-2 rounded-xl">
             + הוסף
           </button>
         </div>
@@ -557,7 +802,7 @@ export default function IncomePage() {
             const activeCls = color === 'indigo'
               ? 'bg-indigo-100 text-indigo-700 border-indigo-300'
               : color === 'pink'
-                ? 'bg-pink-100 text-pink-700 border-pink-300'
+                ? 'bg-pink-200 text-pink-800 border-pink-400'
                 : 'bg-gray-200 text-gray-700 border-gray-300'
             return (
               <button
@@ -594,6 +839,54 @@ export default function IncomePage() {
         )}
       </div>
 
+      {/* ── Type picker ── */}
+      {showTypePicker && (
+        <Modal title="הכנסה חדשה" onClose={() => setShowTypePicker(false)}>
+          <div className="flex gap-2 mb-4">
+            <button
+              type="button"
+              onClick={() => setPickerOwner('tomer')}
+              className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors ${pickerOwner === 'tomer' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400'}`}
+            >תומר</button>
+            <button
+              type="button"
+              onClick={() => setPickerOwner('yael')}
+              className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors ${pickerOwner === 'yael' ? 'bg-pink-500 text-white' : 'bg-gray-100 text-gray-400'}`}
+            >יעל</button>
+          </div>
+          <div className="space-y-3">
+            <button
+              onClick={() => openAdd('film', pickerOwner)}
+              className="w-full py-5 bg-blue-50 hover:bg-blue-100 rounded-2xl flex flex-col items-center gap-1 transition-colors active:scale-95"
+            >
+              <span className="text-3xl">🎬</span>
+              <span className="text-sm font-bold text-blue-700">קולנוע / טלוויזיה</span>
+            </button>
+            <button
+              onClick={() => openAdd('theater', pickerOwner)}
+              className="w-full py-5 bg-purple-50 hover:bg-purple-100 rounded-2xl flex flex-col items-center gap-1 transition-colors active:scale-95"
+            >
+              <span className="text-3xl">🎭</span>
+              <span className="text-sm font-bold text-purple-700">תיאטרון</span>
+            </button>
+            <button
+              onClick={() => openAdd('commercial', pickerOwner)}
+              className="w-full py-5 bg-orange-50 hover:bg-orange-100 rounded-2xl flex flex-col items-center gap-1 transition-colors active:scale-95"
+            >
+              <span className="text-3xl">💼</span>
+              <span className="text-sm font-bold text-orange-700">מסחרי / קמפיין</span>
+            </button>
+            <button
+              onClick={() => openAdd('dubbing', pickerOwner)}
+              className="w-full py-5 bg-pink-100 hover:bg-pink-200 rounded-2xl flex flex-col items-center gap-1 transition-colors active:scale-95"
+            >
+              <span className="text-3xl">🎙️</span>
+              <span className="text-sm font-bold text-pink-700">דיבוב</span>
+            </button>
+          </div>
+        </Modal>
+      )}
+
       {/* ── Edit / Add modal ── */}
       {modal && (
         <Modal title={modal === 'add' ? 'הכנסה חדשה' : 'עריכת הכנסה'} onClose={closeModal} onSave={save}>
@@ -617,6 +910,27 @@ export default function IncomePage() {
                 יעל
               </button>
             </div>
+          </div>
+          {/* ── סוג פרויקט (תצוגה בלבד) ── */}
+          <div className={`text-center text-xs font-bold px-3 py-1.5 rounded-full mb-2 ${form.projectType === 'commercial' ? 'bg-orange-100 text-orange-700' : form.projectType === 'theater' ? 'bg-purple-100 text-purple-700' : form.projectType === 'dubbing' ? 'bg-pink-200 text-pink-800' : 'bg-blue-100 text-blue-700'}`}>
+            {form.projectType === 'commercial' ? '💼 מסחרי / קמפיין' : form.projectType === 'theater' ? '🎭 תיאטרון' : form.projectType === 'dubbing' ? '🎙️ דיבוב' : '🎬 קולנוע / טלוויזיה'}
+          </div>
+          {/* ── גרירת חוזה ── */}
+          <div
+            className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors mb-3 ${analyzing ? 'bg-blue-50 border-blue-300' : dragOver ? 'bg-green-50 border-green-400' : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}
+            onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={e => { e.preventDefault(); setDragOver(false); handleContractFile(e.dataTransfer.files[0]) }}
+            onClick={() => contractInputRef.current?.click()}
+          >
+            <input ref={contractInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={e => { handleContractFile(e.target.files[0]); e.target.value = '' }} />
+            {analyzing
+              ? <p className="text-sm text-blue-600 font-medium">📄 מנתח חוזה...</p>
+              : <>
+                  <p className="text-sm text-gray-500">📄 גרור חוזה / תמונה לכאן</p>
+                  <p className="text-xs text-gray-400 mt-1">PDF או תמונה — השדות ימולאו אוטומטית</p>
+                </>
+            }
           </div>
           <Field label="סכום (₪)">
             <div className="flex flex-col gap-1">
@@ -824,80 +1138,164 @@ export default function IncomePage() {
             )
           })()}
 
-          <Field label="תאריך צפוי" hint="השאר ריק אם לא ידוע">
-            <Input type="date" value={form.expectedDate} onChange={v => set('expectedDate', v)} />
-          </Field>
-          <Field label="הערות">
-            <Textarea value={form.notes} onChange={v => set('notes', v)} placeholder="הערות..." />
-          </Field>
-          <Field label="חשבון לזיכוי" hint="בעת לחיצה על התקבל — יתרה תתעדכן">
-            <Select value={form.accountId || ''} onChange={v => set('accountId', v)} options={accountOptions} />
-          </Field>
-
           {/* ── Project rate defaults ── */}
           <div className="border-t border-gray-100 pt-3 space-y-2">
-            <p className="text-xs font-semibold text-gray-500">תעריפי ברירת מחדל</p>
-            <div className="bg-indigo-50 rounded-xl p-3 space-y-3">
-              <Field label="תעריף יום צילום (₪)" hint="משמש בסיס לחישוב חזרות, מדידות ושעות נוספות">
-                <Input type="number" value={form.photoDayRate} onChange={v => set('photoDayRate', v)} placeholder="0" />
-              </Field>
-              <div className="grid grid-cols-2 gap-2">
-                <Field label="% שעה 1–2 (חזרה/מדידה)">
-                  <Input type="number" value={form.rehearsalPct12} onChange={v => set('rehearsalPct12', v)} placeholder="15" />
-                </Field>
-                <Field label="% שעה 3+ (חזרה/מדידה)">
-                  <Input type="number" value={form.rehearsalPct3plus} onChange={v => set('rehearsalPct3plus', v)} placeholder="30" />
-                </Field>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-gray-600 mb-1.5">מדרגות שעות נוספות ביום צילום</p>
-                {(form.overtimeTiers || []).map((tier, idx) => (
-                  <div key={idx} className="flex items-center gap-2 mb-1.5">
-                    <span className="text-xs text-gray-500 whitespace-nowrap">החל משעה</span>
-                    <input
-                      type="number"
-                      value={tier.fromHour ?? ''}
-                      onChange={e => {
-                        const val = e.target.value === '' ? '' : Number(e.target.value)
-                        set('overtimeTiers', (form.overtimeTiers || []).map((t, i) => i === idx ? { ...t, fromHour: val } : t))
-                      }}
-                      className="w-14 border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white text-center"
-                    />
-                    <span className="text-xs text-gray-500">=</span>
-                    <input
-                      type="number"
-                      value={tier.pct ?? ''}
-                      onChange={e => {
-                        const val = e.target.value === '' ? '' : Number(e.target.value)
-                        set('overtimeTiers', (form.overtimeTiers || []).map((t, i) => i === idx ? { ...t, pct: val } : t))
-                      }}
-                      className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white text-center"
-                    />
-                    <span className="text-xs text-gray-500">%</span>
-                    <button
-                      type="button"
-                      onClick={() => set('overtimeTiers', (form.overtimeTiers || []).filter((_, i) => i !== idx))}
-                      className="text-red-400 text-xs px-1.5 hover:bg-red-50 rounded mr-auto"
-                    >✕</button>
+            {form.projectType === 'commercial' ? (
+              <>
+                <p className="text-xs font-semibold text-gray-500">פרטי קמפיין</p>
+                <div className="bg-orange-50 rounded-xl p-3 space-y-3">
+                  <Field label="שם לקוח / מותג">
+                    <Input value={form.commercialClient} onChange={v => set('commercialClient', v)} placeholder="למשל: קוקה קולה, פוקס..." />
+                  </Field>
+                  <Field label="פלטפורמה">
+                    <Select value={form.commercialPlatform} onChange={v => set('commercialPlatform', v)} options={[
+                      { value: '', label: 'בחר פלטפורמה' },
+                      { value: 'instagram', label: 'אינסטגרם' },
+                      { value: 'tiktok', label: 'טיקטוק' },
+                      { value: 'youtube', label: 'יוטיוב' },
+                      { value: 'tv', label: 'טלוויזיה' },
+                      { value: 'other', label: 'אחר' },
+                    ]} />
+                  </Field>
+                  <Field label="ימי צילום לפי חוזה" hint="השאר ריק אם לא מוגבל">
+                    <Input type="number" value={form.commercialShootDaysContract} onChange={v => set('commercialShootDaysContract', v)} placeholder="0" />
+                  </Field>
+                </div>
+              </>
+            ) : form.projectType === 'dubbing' ? (
+              <>
+                <p className="text-xs font-semibold text-gray-500">תעריפי דיבוב (שח"ם)</p>
+                <div className="bg-pink-50 rounded-xl p-3 space-y-3">
+                  <Field label="סוג הפקה">
+                    <Select value={form.dubbingProductionType} onChange={v => {
+                      const preset = DUBBING_RATE_PRESETS[v] || DUBBING_RATE_PRESETS.major
+                      set('dubbingProductionType', v)
+                      set('dubbingFirstHourRate', preset.firstHour)
+                      set('dubbingHalfHourRate', preset.halfHour)
+                      set('dubbingSongBonus', preset.songBonus)
+                    }} options={[
+                      { value: 'major', label: '🎬 מייג\'ור (Disney, Paramount...)' },
+                      { value: 'independent', label: '🎥 עצמאי' },
+                      { value: 'tv', label: '📺 טלוויזיה' },
+                    ]} />
+                  </Field>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="שעה ראשונה (₪)">
+                      <Input type="number" value={form.dubbingFirstHourRate} onChange={v => set('dubbingFirstHourRate', v)} />
+                    </Field>
+                    <Field label="חצי שעה נוספת (₪)">
+                      <Input type="number" value={form.dubbingHalfHourRate} onChange={v => set('dubbingHalfHourRate', v)} />
+                    </Field>
                   </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => {
-                    const tiers = form.overtimeTiers || []
-                    const last = tiers[tiers.length - 1]
-                    const nextFrom = last ? (Number(last.fromHour) || 10) + 2 : 11
-                    set('overtimeTiers', [...tiers, { fromHour: nextFrom, pct: 200 }])
-                  }}
-                  className="text-xs text-indigo-600 font-medium mt-1"
-                >+ הוסף מדרגה</button>
+                  <Field label="תוספת שיר סולו/דואט (₪)">
+                    <Input type="number" value={form.dubbingSongBonus} onChange={v => set('dubbingSongBonus', v)} />
+                  </Field>
+                </div>
+              </>
+            ) : (
+            <>
+            <p className="text-xs font-semibold text-gray-500">תעריפי ברירת מחדל</p>
+            {form.projectType === 'theater' ? (
+              <div className="bg-purple-50 rounded-xl p-3 space-y-3">
+                <Field label="מחיר הצגה (₪)">
+                  <Input type="number" value={form.theaterShowPrice} onChange={v => set('theaterShowPrice', v)} placeholder="0" />
+                </Field>
+                <Field label="סכום כולל חזרות (₪)" hint="הסכום שהוסכם לכל תקופת החזרות">
+                  <Input type="number" value={form.theaterRehearsalTotal} onChange={v => set('theaterRehearsalTotal', v)} placeholder="0" />
+                </Field>
+                {(() => {
+                  const total = Number(form.theaterRehearsalTotal) || 0
+                  if (total <= 0) return null
+                  const paid = (form.sessions || [])
+                    .filter(s => s.type === 'חזרות חודשיות')
+                    .reduce((sum, s) => sum + (s.amount || 0), 0)
+                  const remaining = total - paid
+                  const pct = Math.min(Math.round((paid / total) * 100), 100)
+                  return (
+                    <div className="bg-purple-50 rounded-lg px-3 py-2 space-y-1.5">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-500">שולם</span>
+                        <span className="font-bold text-purple-700">{formatILS(paid)} / {formatILS(total)}</span>
+                      </div>
+                      <div className="w-full bg-purple-200 rounded-full h-2">
+                        <div className="bg-purple-600 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-500">נותר</span>
+                        <span className={`font-bold ${remaining > 0 ? 'text-orange-600' : 'text-green-600'}`}>{formatILS(remaining)}</span>
+                      </div>
+                    </div>
+                  )
+                })()}
+                <Field label="מחיר חזרה — אחרי עלייה (₪)" hint="גם לצילומי טריילר וצילומי הצגה">
+                  <Input type="number" value={form.theaterPostRehearsal} onChange={v => set('theaterPostRehearsal', v)} placeholder="0" />
+                </Field>
               </div>
-            </div>
+            ) : (
+              <div className="bg-indigo-50 rounded-xl p-3 space-y-3">
+                <Field label="תעריף יום צילום (₪)" hint="משמש בסיס לחישוב חזרות, מדידות ושעות נוספות">
+                  <Input type="number" value={form.photoDayRate} onChange={v => set('photoDayRate', v)} placeholder="0" />
+                </Field>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="% שעה 1–2 (חזרה/מדידה)">
+                    <Input type="number" value={form.rehearsalPct12} onChange={v => set('rehearsalPct12', v)} placeholder="15" />
+                  </Field>
+                  <Field label="% שעה 3+ (חזרה/מדידה)">
+                    <Input type="number" value={form.rehearsalPct3plus} onChange={v => set('rehearsalPct3plus', v)} placeholder="30" />
+                  </Field>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-gray-600 mb-1.5">מדרגות שעות נוספות ביום צילום</p>
+                  {(form.overtimeTiers || []).map((tier, idx) => (
+                    <div key={idx} className="flex items-center gap-2 mb-1.5">
+                      <span className="text-xs text-gray-500 whitespace-nowrap">החל משעה</span>
+                      <input
+                        type="number"
+                        value={tier.fromHour ?? ''}
+                        onChange={e => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value)
+                          set('overtimeTiers', (form.overtimeTiers || []).map((t, i) => i === idx ? { ...t, fromHour: val } : t))
+                        }}
+                        className="w-14 border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white text-center"
+                      />
+                      <span className="text-xs text-gray-500">=</span>
+                      <input
+                        type="number"
+                        value={tier.pct ?? ''}
+                        onChange={e => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value)
+                          set('overtimeTiers', (form.overtimeTiers || []).map((t, i) => i === idx ? { ...t, pct: val } : t))
+                        }}
+                        className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white text-center"
+                      />
+                      <span className="text-xs text-gray-500">%</span>
+                      <button
+                        type="button"
+                        onClick={() => set('overtimeTiers', (form.overtimeTiers || []).filter((_, i) => i !== idx))}
+                        className="text-red-400 text-xs px-1.5 hover:bg-red-50 rounded mr-auto"
+                      >✕</button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const tiers = form.overtimeTiers || []
+                      const last = tiers[tiers.length - 1]
+                      const nextFrom = last ? (Number(last.fromHour) || 10) + 2 : 11
+                      set('overtimeTiers', [...tiers, { fromHour: nextFrom, pct: 200 }])
+                    }}
+                    className="text-xs text-indigo-600 font-medium mt-1"
+                  >+ הוסף מדרגה</button>
+                </div>
+              </div>
+            )}
+            </>
+            )}
           </div>
 
           {/* ── Work sessions ── */}
           <div className="border-t border-gray-100 pt-3 space-y-2">
-            <p className="text-xs font-semibold text-gray-500">פירוט ימי עבודה</p>
+            <p className="text-xs font-semibold text-gray-500">{form.projectType === 'commercial' ? 'תיעוד פעילויות' : form.projectType === 'dubbing' ? 'פירוט הקלטות' : 'פירוט ימי עבודה'}</p>
 
             {/* Existing sessions */}
             {(form.sessions || []).length > 0 && (
@@ -907,7 +1305,7 @@ export default function IncomePage() {
                   return (
                     <div key={ws.id} className={`flex items-center justify-between px-3 py-2 ${isBeingEdited ? 'bg-indigo-50' : 'bg-white'}`}>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-gray-700">{ws.type}{isBeingEdited && <span className="text-[10px] text-indigo-600 mr-2">· בעריכה</span>}</p>
+                        <p className="text-sm font-medium text-gray-700">{COMMERCIAL_TYPE_LABELS[ws.type] || ws.type}{isBeingEdited && <span className="text-[10px] text-indigo-600 mr-2">· בעריכה</span>}</p>
                         <p className="text-xs text-gray-400">
                           {ws.date ? formatDate(ws.date) : 'ללא תאריך'} · {formatSessionDetail(ws)}
                         </p>
@@ -921,7 +1319,7 @@ export default function IncomePage() {
                         )}
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        <span className="text-sm font-bold text-green-600 ml-1">{formatILS(ws.amount)}</span>
+                        {ws.amount > 0 && <span className="text-sm font-bold text-green-600 ml-1">{formatILS(ws.amount)}</span>}
                         <button
                           type="button"
                           onClick={() => startEditSess(ws)}
@@ -938,10 +1336,17 @@ export default function IncomePage() {
                     </div>
                   )
                 })}
-                <div className="flex justify-between px-3 py-2 bg-green-50">
-                  <span className="text-xs font-semibold text-green-700">סה״כ</span>
-                  <span className="text-sm font-bold text-green-700">{formatILS((form.sessions || []).reduce((s, w) => s + (w.amount || 0), 0))}</span>
-                </div>
+                {form.projectType === 'commercial' ? (
+                  <div className="flex justify-between px-3 py-2 bg-orange-50">
+                    <span className="text-xs font-semibold text-orange-700">סה״כ פעילויות</span>
+                    <span className="text-sm font-bold text-orange-700">{(form.sessions || []).length}</span>
+                  </div>
+                ) : (
+                  <div className="flex justify-between px-3 py-2 bg-green-50">
+                    <span className="text-xs font-semibold text-green-700">סה״כ</span>
+                    <span className="text-sm font-bold text-green-700">{formatILS((form.sessions || []).reduce((s, w) => s + (w.amount || 0), 0))}</span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -949,7 +1354,7 @@ export default function IncomePage() {
             <div className="bg-gray-50 rounded-xl p-3 space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 <Field label="סוג">
-                  <Select value={newSess.type} onChange={v => setNewSess({ ...EMPTY_NEW_SESS, type: v, date: newSess.date })} options={SESSION_TYPES} />
+                  <Select value={newSess.type} onChange={v => setNewSess({ ...EMPTY_NEW_SESS, type: v, date: newSess.date })} options={form.projectType === 'commercial' ? COMMERCIAL_SESSION_TYPES : form.projectType === 'theater' ? THEATER_SESSION_TYPES : form.projectType === 'dubbing' ? DUBBING_SESSION_TYPES : FILM_SESSION_TYPES} />
                 </Field>
                 <Field label="תאריך">
                   <Input type="date" value={newSess.date} onChange={v => setNewSess(s => ({ ...s, date: v }))} />
@@ -1024,6 +1429,8 @@ export default function IncomePage() {
                             value={newSess.shootStart}
                             onChange={v => setNewSess(s => ({ ...s, shootStart: v }))}
                             defaultHint="08:00"
+                            label="תחילת צילומים"
+                            onPicked={() => setTimeout(() => setAutoOpenEnd(true), 150)}
                           />
                         </Field>
                         <Field label="סיום צילומים">
@@ -1031,6 +1438,9 @@ export default function IncomePage() {
                             value={newSess.shootEnd}
                             onChange={v => setNewSess(s => ({ ...s, shootEnd: v }))}
                             defaultHint={offsetTime(newSess.shootStart, 9) || '17:00'}
+                            label="סיום צילומים"
+                            triggerOpen={autoOpenEnd}
+                            onOpenHandled={() => setAutoOpenEnd(false)}
                           />
                         </Field>
                       </div>
@@ -1041,6 +1451,8 @@ export default function IncomePage() {
                             value={newSess.pickupTime}
                             onChange={v => setNewSess(s => ({ ...s, pickupTime: v }))}
                             defaultHint={offsetTime(newSess.shootStart, -1) || '07:00'}
+                            label="שעת איסוף"
+                            onPicked={() => setTimeout(() => setAutoOpenReturn(true), 150)}
                           />
                         </Field>
                         <Field label="שעת חזור">
@@ -1048,6 +1460,9 @@ export default function IncomePage() {
                             value={newSess.returnTime}
                             onChange={v => setNewSess(s => ({ ...s, returnTime: v }))}
                             defaultHint={offsetTime(newSess.shootEnd, 1) || '18:00'}
+                            label="שעת חזור"
+                            triggerOpen={autoOpenReturn}
+                            onOpenHandled={() => setAutoOpenReturn(false)}
                           />
                         </Field>
                       </div>
@@ -1207,6 +1622,222 @@ export default function IncomePage() {
                 )
               })()}
 
+              {/* ═══ Theater: חזרות חודשיות — סכום ידני מול סכום כולל ═══ */}
+              {newSess.type === 'חזרות חודשיות' && (() => {
+                const amt = Number(newSess.manualAmount) || 0
+                const totalBudget = Number(form.theaterRehearsalTotal) || 0
+                const paidSoFar = (form.sessions || [])
+                  .filter(s => s.type === 'חזרות חודשיות')
+                  .reduce((sum, s) => sum + (s.amount || 0), 0)
+                return (
+                  <>
+                    <Field label="חודש">
+                      <Input type="month" value={newSess.theaterMonth} onChange={v => setNewSess(s => ({ ...s, theaterMonth: v }))} />
+                    </Field>
+                    <Field label="סכום שהתקבל (₪)">
+                      <Input type="number" value={newSess.manualAmount} onChange={v => setNewSess(s => ({ ...s, manualAmount: v }))} placeholder="0" />
+                    </Field>
+                    {totalBudget > 0 && (
+                      <div className="bg-purple-50 rounded-lg px-3 py-2 space-y-1.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-500">שולם עד כה</span>
+                          <span className="font-bold text-purple-700">{formatILS(paidSoFar)} / {formatILS(totalBudget)}</span>
+                        </div>
+                        <div className="w-full bg-purple-200 rounded-full h-2">
+                          <div className="bg-purple-600 h-2 rounded-full transition-all" style={{ width: `${Math.min(Math.round((paidSoFar / totalBudget) * 100), 100)}%` }} />
+                        </div>
+                        {amt > 0 && (
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-500">נותר אחרי רישום זה</span>
+                            <span className={`font-bold ${(totalBudget - paidSoFar - amt) > 0 ? 'text-orange-600' : 'text-green-600'}`}>{formatILS(totalBudget - paidSoFar - amt)}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <button onClick={addSessToForm} disabled={amt <= 0} className="w-full bg-purple-700 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
+                      {editingSessId ? 'עדכן רישום · ' : '+ הוסף רישום · '}{formatILS(amt)}
+                    </button>
+                    {editingSessId && (
+                      <button onClick={cancelEditSess} className="w-full bg-gray-100 text-gray-600 text-xs font-semibold py-1.5 rounded-xl mt-1">
+                        ביטול עריכה
+                      </button>
+                    )}
+                  </>
+                )
+              })()}
+
+              {/* ═══ Theater types (other than חזרות חודשיות) ═══ */}
+              {['הצגה', 'חזרה אחרי עלייה', 'צילומי טריילר', 'צילומי הצגה'].includes(newSess.type) && (() => {
+                const priceMap = {
+                  'הצגה':              form.theaterShowPrice,
+                  'חזרה אחרי עלייה':  form.theaterPostRehearsal,
+                  'צילומי טריילר':     form.theaterPostRehearsal,
+                  'צילומי הצגה':       form.theaterPostRehearsal,
+                }
+                const price = Number(priceMap[newSess.type]) || 0
+                const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : price
+                const canAdd = finalAmt > 0
+                return (
+                  <>
+                    {newSess.type === 'הצגה' && (
+                      <Field label="מיקום">
+                        <Input value={newSess.theaterLocation} onChange={v => setNewSess(s => ({ ...s, theaterLocation: v }))} placeholder="שם התיאטרון / עיר" />
+                      </Field>
+                    )}
+
+                    {price > 0 ? (
+                      <div className="bg-white rounded-lg px-3 py-2 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">תעריף {newSess.type}</span>
+                          <span className="font-bold text-green-700">{formatILS(price)}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-yellow-50 rounded-lg px-3 py-2 text-xs text-yellow-700">
+                        ⚠ הגדר תעריף "{newSess.type}" בהגדרות למעלה — או הפעל "סכום ידני"
+                      </div>
+                    )}
+
+                    <label className="flex items-center gap-2 text-xs text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={!!newSess.manualMode}
+                        onChange={e => setNewSess(s => ({ ...s, manualMode: e.target.checked }))}
+                      />
+                      סכום ידני (עוקף את התעריף)
+                    </label>
+                    {newSess.manualMode && (
+                      <Field label="סכום ידני (₪)">
+                        <Input type="number" value={newSess.manualAmount} onChange={v => setNewSess(s => ({ ...s, manualAmount: v }))} placeholder="0" />
+                      </Field>
+                    )}
+
+                    <button onClick={addSessToForm} disabled={!canAdd} className="w-full bg-purple-700 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
+                      {editingSessId ? 'עדכן רישום · ' : '+ הוסף רישום · '}{formatILS(finalAmt)}
+                    </button>
+                    {editingSessId && (
+                      <button onClick={cancelEditSess} className="w-full bg-gray-100 text-gray-600 text-xs font-semibold py-1.5 rounded-xl mt-1">
+                        ביטול עריכה
+                      </button>
+                    )}
+                  </>
+                )
+              })()}
+
+              {/* ═══ Commercial types ═══ */}
+              {form.projectType === 'commercial' && newSess.type !== 'אחר' && (() => {
+                const shootDaysUsed = (form.sessions || []).filter(s => s.type === 'צילום').length
+                const contractDays = Number(form.commercialShootDaysContract) || 0
+                return (
+                  <>
+                    <Field label="תיאור / הערה">
+                      <Input value={newSess.commercialNote} onChange={v => setNewSess(s => ({ ...s, commercialNote: v }))} placeholder="למשל: צילום בסטודיו, פגישת הפקה..." />
+                    </Field>
+
+                    {newSess.type === 'צילום' && contractDays > 0 && (
+                      <div className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold ${shootDaysUsed >= contractDays ? 'bg-red-50 text-red-700' : 'bg-orange-50 text-orange-700'}`}>
+                        <span>📷 ימי צילום</span>
+                        <span>{shootDaysUsed} / {contractDays}</span>
+                      </div>
+                    )}
+
+                    <button onClick={addSessToForm} className="w-full bg-orange-600 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
+                      {editingSessId ? 'עדכן רישום' : '+ הוסף רישום'}
+                    </button>
+                    {editingSessId && (
+                      <button onClick={cancelEditSess} className="w-full bg-gray-100 text-gray-600 text-xs font-semibold py-1.5 rounded-xl mt-1">
+                        ביטול עריכה
+                      </button>
+                    )}
+                  </>
+                )
+              })()}
+
+              {/* ═══ Dubbing types ═══ */}
+              {form.projectType === 'dubbing' && newSess.type !== 'אחר' && (() => {
+                // Auto-calc hours from start/end times
+                const autoH = (newSess.dubbingStart && newSess.dubbingEnd)
+                  ? roundUpQuarter(timeDiffHours(newSess.dubbingStart, newSess.dubbingEnd))
+                  : 0
+                const h = newSess.dubbingHours !== '' ? Number(newSess.dubbingHours) : autoH
+                const firstHR = Number(form.dubbingFirstHourRate) || 0
+                const halfHR = Number(form.dubbingHalfHourRate) || 0
+                const hasSong = !!newSess.dubbingHasSong
+                const songB = Number(form.dubbingSongBonus) || 0
+                const computed = h > 0 ? computeDubbingAmount(h, firstHR, halfHR, hasSong, songB) : 0
+                return (
+                  <>
+                    <div className="bg-white rounded-lg p-2 space-y-2">
+                      <p className="text-xs text-gray-500 font-medium">שעות הקלטה</p>
+                      <div className="grid grid-cols-2 gap-2" dir="rtl">
+                        <Field label="תחילת הקלטה">
+                          <TimePicker
+                            value={newSess.dubbingStart}
+                            onChange={v => setNewSess(s => ({ ...s, dubbingStart: v, dubbingHours: '' }))}
+                            defaultHint="10:00"
+                            label="תחילת הקלטה"
+                            onPicked={() => setTimeout(() => setAutoOpenDubbingEnd(true), 150)}
+                          />
+                        </Field>
+                        <Field label="סיום הקלטה">
+                          <TimePicker
+                            value={newSess.dubbingEnd}
+                            onChange={v => setNewSess(s => ({ ...s, dubbingEnd: v, dubbingHours: '' }))}
+                            defaultHint={offsetTime(newSess.dubbingStart, 2) || '12:00'}
+                            label="סיום הקלטה"
+                            triggerOpen={autoOpenDubbingEnd}
+                            onOpenHandled={() => setAutoOpenDubbingEnd(false)}
+                          />
+                        </Field>
+                      </div>
+                      <Field label="שעות לחישוב (עשרוני)" hint="השאר ריק כדי לחשב אוטומטית מהזמנים">
+                        <Input type="number" step="0.25" value={newSess.dubbingHours} onChange={v => setNewSess(s => ({ ...s, dubbingHours: v }))} placeholder={autoH > 0 ? String(autoH) : '0'} />
+                      </Field>
+                    </div>
+
+                    <label className="flex items-center gap-2 px-1 cursor-pointer">
+                      <input type="checkbox" checked={!!newSess.dubbingHasSong} onChange={e => setNewSess(s => ({ ...s, dubbingHasSong: e.target.checked }))}
+                        className="w-4 h-4 rounded border-gray-300 text-pink-600 focus:ring-pink-500" />
+                      <span className="text-xs font-medium text-gray-600">🎵 שיר סולו / דואט (+{songB}₪)</span>
+                    </label>
+
+                    {h > 0 && (
+                      <div className="bg-pink-100 rounded-xl p-3 space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-500">שעה ראשונה</span>
+                          <span className="font-bold text-pink-700">{formatILS(firstHR)}</span>
+                        </div>
+                        {h > 1 && (
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-500">{Math.ceil((h - 1) / 0.5)} × חצי שעה ({halfHR}₪)</span>
+                            <span className="font-bold text-pink-700">{formatILS(Math.ceil((h - 1) / 0.5) * halfHR)}</span>
+                          </div>
+                        )}
+                        {hasSong && (
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-500">🎵 תוספת שיר</span>
+                            <span className="font-bold text-pink-700">{formatILS(songB)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between text-sm border-t border-pink-300 pt-1 mt-1">
+                          <span className="font-semibold text-gray-700">סה"כ</span>
+                          <span className="font-bold text-pink-700">{formatILS(computed)}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <button onClick={addSessToForm} disabled={h <= 0} className="w-full bg-pink-600 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
+                      {editingSessId ? 'עדכן רישום' : '+ הוסף רישום'}
+                    </button>
+                    {editingSessId && (
+                      <button onClick={cancelEditSess} className="w-full bg-gray-100 text-gray-600 text-xs font-semibold py-1.5 rounded-xl mt-1">
+                        ביטול עריכה
+                      </button>
+                    )}
+                  </>
+                )
+              })()}
+
               {/* ═══ Other ═══ */}
               {newSess.type === 'אחר' && (() => {
                 const qty = Number(newSess.quantity) || 0
@@ -1238,6 +1869,16 @@ export default function IncomePage() {
               })()}
             </div>
           </div>
+
+          <Field label="חשבון לזיכוי" hint="בעת לחיצה על התקבל — יתרה תתעדכן">
+            <Select value={form.accountId || ''} onChange={v => set('accountId', v)} options={accountOptions} />
+          </Field>
+          <Field label="תאריך צפוי" hint="השאר ריק אם לא ידוע">
+            <Input type="date" value={form.expectedDate} onChange={v => set('expectedDate', v)} />
+          </Field>
+          <Field label="הערות">
+            <Textarea value={form.notes} onChange={v => set('notes', v)} placeholder="הערות..." />
+          </Field>
 
           <SaveButton onClick={save} />
           {modal !== 'add' && (
@@ -1322,9 +1963,10 @@ export default function IncomePage() {
       {receiveModal && (
         <Backdrop
           className="fixed inset-0 z-[60] flex items-end justify-center bg-black bg-opacity-30"
+          style={{ animation: 'modalBackdropIn 0.2s ease-out' }}
           onClose={() => setReceiveModal(null)}
         >
-          <div className="relative bg-white rounded-t-2xl w-full shadow-xl p-5 space-y-4">
+          <div className="relative bg-white rounded-t-2xl w-full shadow-xl p-5 space-y-4" style={{ animation: 'modalSlideUp 0.35s cubic-bezier(.22,1,.36,1)' }}>
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-gray-800">התקבל — {receiveModal.item.name}</h3>
               <button onClick={() => setReceiveModal(null)} className="text-gray-400 text-xl">×</button>
@@ -1451,8 +2093,8 @@ function IncomeCard({ item, onEdit, onReceive, onUndo, onWorkLog, onClose, onReo
             {isReceived ? (
               <span className="text-xs bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">✓ התקבל</span>
             ) : isWorkLog ? (
-              <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
-                🎬 בתהוות{sessionCount > 0 ? ` · ${sessionCount} רישומים` : ''}
+              <span className={`text-xs px-2 py-0.5 rounded-full ${item.projectType === 'commercial' ? 'bg-orange-100 text-orange-700' : item.projectType === 'theater' ? 'bg-purple-100 text-purple-700' : item.projectType === 'dubbing' ? 'bg-pink-200 text-pink-800' : 'bg-blue-100 text-blue-700'}`}>
+                {item.projectType === 'commercial' ? '💼' : item.projectType === 'theater' ? '🎭' : item.projectType === 'dubbing' ? '🎙️' : '🎬'} בתהוות{sessionCount > 0 ? ` · ${sessionCount} רישומים` : ''}
               </span>
             ) : (
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badgeColor}`}>
@@ -1467,10 +2109,21 @@ function IncomeCard({ item, onEdit, onReceive, onUndo, onWorkLog, onClose, onReo
               <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-semibold">תומר</span>
             )}
             {item.owner === 'yael' && (
-              <span className="text-xs bg-pink-50 text-pink-600 px-2 py-0.5 rounded-full font-semibold">יעל</span>
+              <span className="text-xs bg-pink-100 text-pink-600 px-2 py-0.5 rounded-full font-semibold">יעל</span>
             )}
           </div>
 
+          {item.projectType === 'commercial' && (item.commercialClient || item.commercialShootDaysContract) && (() => {
+            const shootDays = (item.sessions || []).filter(s => s.type === 'צילום').length
+            const contract = Number(item.commercialShootDaysContract) || 0
+            return (
+              <p className="text-xs text-orange-500 mt-1 font-medium">
+                {item.commercialClient && <span>{item.commercialClient}</span>}
+                {item.commercialClient && contract > 0 && ' · '}
+                {contract > 0 && <span>📷 {shootDays}/{contract} ימי צילום</span>}
+              </p>
+            )
+          })()}
           {item.expectedDate && (
             <p className="text-xs text-gray-400 mt-1">
               {isReceived ? 'התקבל' : 'צפוי'}: {formatDate(item.expectedDate)}
@@ -1483,7 +2136,7 @@ function IncomeCard({ item, onEdit, onReceive, onUndo, onWorkLog, onClose, onReo
 
         <div className="flex flex-col items-end gap-2 mr-3">
           <div className="text-left">
-            <span className={`text-base font-bold ${isReceived ? 'text-gray-400' : isWorkLog ? 'text-purple-600' : 'text-green-600'}`}>
+            <span className={`text-base font-bold ${isReceived ? 'text-gray-400' : isWorkLog && item.projectType === 'commercial' ? 'text-orange-600' : isWorkLog && item.projectType === 'theater' ? 'text-purple-600' : isWorkLog && item.projectType === 'dubbing' ? 'text-pink-600' : isWorkLog ? 'text-blue-600' : 'text-green-600'}`}>
               {(item.amount || 0) > 0 ? formatILS(item.amount) : isWorkLog ? '—' : '—'}
             </span>
             {(item.amount || 0) > 0 && (item.agentCommission || item.addVat) && (() => {

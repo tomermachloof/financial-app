@@ -28,6 +28,11 @@ const calcPaymentsMade = (startDate, chargeDay, durationMonths) => {
  * מחזיר null אם חסר מידע, ומחזיר אובייקט missingFields אם חסרים שדות.
  */
 export const calcRemainingBalance = (loan) => {
+  // balanceOverride — עדיפות ראשונה: המשתמש אישר/עדכן ידנית
+  if (loan.balanceOverride != null) {
+    return { balance: loan.balanceOverride, missing: [], isOverride: true }
+  }
+
   // לוח סילוקין קיים — יתרת קרן ישירות מהלוח
   if (loan.paymentSchedule?.length > 0) {
     const todayStr = new Date().toISOString().split('T')[0]
@@ -49,11 +54,6 @@ export const calcRemainingBalance = (loan) => {
     const futurePayments = loan.paymentSchedule.filter(p => p.date && p.date > todayStr)
     const remaining = futurePayments.reduce((s, p) => s + (p.amount || 0), 0)
     return { balance: Math.max(0, Math.round(remaining)), missing: [], fromSchedule: true }
-  }
-
-  // יתרה ידועה — מחליפה חישוב (רק אם אין לוח סילוקין)
-  if (loan.balanceOverride != null) {
-    return { balance: loan.balanceOverride, missing: [], isOverride: true }
   }
 
   const missing = []
@@ -145,11 +145,10 @@ export const calcMonthlyOut = (loans, expenses, usdRate) => {
   const today = new Date()
   const mKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
   const loanPayments    = loans.reduce((s, l) => {
-    const scheduled = (l.paymentSchedule || []).find(p => p.date && p.date.startsWith(mKey))
-    const base = scheduled ? scheduled.amount
-      : (l.monthlyAmounts && l.monthlyAmounts[mKey] != null) ? l.monthlyAmounts[mKey]
-      : (l.monthlyPayment || 0)
-    return s + base + (scheduled ? 0 : (l.extras || []).reduce((e, x) => e + x.amount, 0))
+    const base = (l.monthlyAmounts && l.monthlyAmounts[mKey] != null) ? l.monthlyAmounts[mKey]
+      : (() => { const sch = (l.paymentSchedule || []).find(p => p.date && p.date.startsWith(mKey)); return sch ? sch.amount : (l.monthlyPayment || 0) })()
+    const hasSchedule = (l.paymentSchedule || []).some(p => p.date && p.date.startsWith(mKey))
+    return s + base + (hasSchedule && !(l.monthlyAmounts && l.monthlyAmounts[mKey] != null) ? 0 : (l.extras || []).reduce((e, x) => e + x.amount, 0))
   }, 0)
   const expensePayments = expenses.reduce((s, e) => {
     if (e.currency === 'USD') {
@@ -235,14 +234,16 @@ export const getMonthEvents = (year, month, loans, expenses, rentalIncome, futur
 
     const isUSD     = l.currency === 'USD'
     const extrasAmt = (l.extras || []).reduce((s, x) => s + x.amount, 0)
-    // Use paymentSchedule if available — exact amount per month
+    // monthlyAmounts (user override) → paymentSchedule → monthlyPayment
     const mKey      = `${year}-${String(month).padStart(2, '0')}`
-    const scheduled = (l.paymentSchedule || []).find(p => p.date && p.date.startsWith(mKey))
-    const basePay   = scheduled ? scheduled.amount : ((l.monthlyPayment || 0) + extrasAmt)
+    const basePay   = (l.monthlyAmounts && l.monthlyAmounts[mKey] != null) ? l.monthlyAmounts[mKey]
+      : (() => { const s = (l.paymentSchedule || []).find(p => p.date && p.date.startsWith(mKey)); return s ? s.amount : ((l.monthlyPayment || 0) + extrasAmt) })()
     const amt       = isUSD ? basePay * usdRate : basePay
     const ev        = { id: l.id, day: l.chargeDay, name: l.name, amount: -amt, type: 'loan', color: 'red' }
     if (isUSD) { ev.currency = 'USD'; ev.usdAmount = basePay }
-    if (l.accountId)       ev.accountId       = l.accountId
+    // monthlyAccounts override — per-month account
+    if (l.monthlyAccounts && l.monthlyAccounts[mKey]) ev.accountId = l.monthlyAccounts[mKey]
+    else if (l.accountId)  ev.accountId       = l.accountId
     if (l.effectiveAmount != null) ev.effectiveAmount = l.effectiveAmount
     if (l.noBalanceEffect) ev.noBalanceEffect  = true
     if (l.paidViaCredit)   ev.paidViaCredit    = true
@@ -262,7 +263,9 @@ export const getMonthEvents = (year, month, loans, expenses, rentalIncome, futur
       const ev    = { id: e.id, day: e.chargeDay, name: e.name, amount: -amt, type: 'expense', color: 'red' }
       if (isUSD) { ev.currency = 'USD'; ev.usdAmount = e.usdAmount; ev.usdDeductions = e.usdDeductions; ev.usdGross = e.usdGross }
       if (e.note)            ev.note            = e.note
-      if (e.accountId)       ev.accountId       = e.accountId
+      // monthlyAccounts override — per-month account
+      if (e.monthlyAccounts && e.monthlyAccounts[mKey]) ev.accountId = e.monthlyAccounts[mKey]
+      else if (e.accountId)  ev.accountId       = e.accountId
       if (e.destAccountId)   ev.destAccountId   = e.destAccountId
       if (e.noBalanceEffect) ev.noBalanceEffect  = true
       if (e.paidViaCredit)   ev.paidViaCredit    = true
@@ -274,10 +277,15 @@ export const getMonthEvents = (year, month, loans, expenses, rentalIncome, futur
   rentalIncome.forEach(r => {
     if (r.chargeDay) {
       const isUSD = r.currency === 'USD'
-      const amt   = isUSD ? (r.usdAmount || 0) * usdRate : (r.amount || 0)
+      const rAmtKey = `${year}-${String(month).padStart(2, '0')}`
+      const amt   = isUSD ? (r.usdAmount || 0) * usdRate
+        : ((r.monthlyAmounts && r.monthlyAmounts[rAmtKey] != null) ? r.monthlyAmounts[rAmtKey] : (r.amount || 0))
       const ev    = { id: r.id, day: r.chargeDay, name: r.name, amount: amt, type: 'rental', color: 'green' }
       if (isUSD) { ev.currency = 'USD'; ev.usdAmount = r.usdAmount }
-      if (r.accountId)       ev.accountId       = r.accountId
+      // monthlyAccounts override — per-month account
+      const rMKey = `${year}-${String(month).padStart(2, '0')}`
+      if (r.monthlyAccounts && r.monthlyAccounts[rMKey]) ev.accountId = r.monthlyAccounts[rMKey]
+      else if (r.accountId)  ev.accountId       = r.accountId
       if (r.noBalanceEffect) ev.noBalanceEffect  = true
       if (r.note)            ev.note             = r.note
       events.push(ev)
@@ -370,20 +378,22 @@ export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, d
           let eventAmount = baseAmount
           let monthlyOverride = false
           const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-          // paymentSchedule takes highest priority — exact amount from amortization table
-          const scheduled = (item.paymentSchedule || []).find(p => p.date && p.date.startsWith(mKey))
-          if (scheduled) {
+          // monthlyAmounts = user manual override → highest priority
+          // paymentSchedule = amortization table → second priority
+          // baseAmount (monthlyPayment / amount) → default
+          if (item.monthlyAmounts && item.monthlyAmounts[mKey] != null) {
+            const ovr = item.monthlyAmounts[mKey]
             monthlyOverride = true
-            eventAmount = isIncome ? scheduled.amount : -scheduled.amount
-          } else if (item.monthlyAmounts) {
-            if (item.monthlyAmounts[mKey] != null) {
-              const ovr = item.monthlyAmounts[mKey]
+            if (isIncome) {
+              eventAmount = isUSD ? ovr * usdRate : ovr
+            } else {
+              eventAmount = isUSD ? -(ovr * usdRate) : -ovr
+            }
+          } else {
+            const scheduled = (item.paymentSchedule || []).find(p => p.date && p.date.startsWith(mKey))
+            if (scheduled) {
               monthlyOverride = true
-              if (isIncome) {
-                eventAmount = isUSD ? ovr * usdRate : ovr
-              } else {
-                eventAmount = isUSD ? -(ovr * usdRate) : -ovr
-              }
+              eventAmount = isIncome ? scheduled.amount : -scheduled.amount
             }
           }
           // For income with partial payments — subtract received amounts (first visible occurrence only)
@@ -407,7 +417,9 @@ export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, d
             if (item.usdDeductions) event.usdDeductions = item.usdDeductions
           }
           if (item.note)            event.note            = item.note
-          if (item.accountId)       event.accountId       = item.accountId
+          // monthlyAccounts override — per-month account
+          if (item.monthlyAccounts && item.monthlyAccounts[mKey]) event.accountId = item.monthlyAccounts[mKey]
+          else if (item.accountId)  event.accountId       = item.accountId
           if (item.destAccountId)   event.destAccountId   = item.destAccountId
           if (item.noBalanceEffect) event.noBalanceEffect  = true
           if (item.paidViaCredit)   event.paidViaCredit    = true

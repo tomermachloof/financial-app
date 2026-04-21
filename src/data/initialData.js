@@ -115,22 +115,6 @@ export const initialLoans = [
     creditAccountId: 'ba2', accountId: 'ba2', note: 'תומר בינלאומי',
   },
   {
-    id: 'l10', name: "יעל הלוואה דיסקונט",
-    totalAmount: 30000, monthlyPayment: 833,
-    chargeDay: 20, durationMonths: 36,
-    interestRate: 0, interestType: 'fixed',
-    startDate: '2026-03-20', owner: 'יעל', type: 'loan',
-    creditAccountId: 'ba10', accountId: 'ba10', note: 'דיסקונט יעל',
-  },
-  {
-    id: 'l11', name: "תומר הלוואה דיסקונט",
-    totalAmount: 30000, monthlyPayment: 833,
-    chargeDay: 20, durationMonths: 36,
-    interestRate: 0, interestType: 'fixed',
-    startDate: '2026-03-20', owner: 'תומר', type: 'loan',
-    creditAccountId: 'ba9', accountId: 'ba9', note: 'דיסקונט תומר',
-  },
-  {
     id: 'l12', name: "עוגן 2",
     totalAmount: 40000, monthlyPayment: 666,
     chargeDay: 10, durationMonths: 60,

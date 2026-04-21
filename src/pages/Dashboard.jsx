@@ -27,7 +27,7 @@ const RANGE_OPTIONS = [
 ]
 
 export default function Dashboard() {
-  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, updateLoan, updateExpense, updateRentalIncome, updateFutureIncome, reminders, doneReminder, doneReminderMonth, undoneReminder, undoneReminderMonth, deleteReminder, updateReminder, updateInvestment, updateAccount, deleteFutureIncome, deleteExpense, deleteRentalIncome, dismissedEvents, dismissEvent } = useStore()
+  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, updateExpenseMonthlyAccount, updateLoan, updateExpense, updateRentalIncome, updateFutureIncome, updateLoanMonthlyAmount, updateLoanMonthlyAccount, updateRentalMonthlyAmount, updateRentalMonthlyAccount, reminders, doneReminder, doneReminderMonth, undoneReminder, undoneReminderMonth, deleteReminder, updateReminder, updateInvestment, updateAccount, deleteFutureIncome, deleteExpense, deleteRentalIncome, dismissedEvents, dismissEvent } = useStore()
 
   const [rangeDays, setRangeDays] = useState(14)
   const [filterType, setFilterType] = useState('all') // 'all' | 'income' | 'expense'
@@ -50,6 +50,7 @@ export default function Dashboard() {
   const [peeking, setPeeking] = useState(false) // long-press peek at tomorrow's events
   const [editingAccId, setEditingAccId] = useState(null) // account id currently being edited inline
   const [accBalDraft, setAccBalDraft] = useState('')
+  const [permPrompt, setPermPrompt] = useState(null) // { type: 'account'|'amount', event, value, callback }
 
   useEffect(() => { getPushStatus().then(setPushStatus) }, [])
 
@@ -594,12 +595,42 @@ export default function Dashboard() {
                 onEdit={() => handleEditEvent(e)}
                 onShowAccounts={() => setShowAccountsModal(e.currency === 'USD' ? 'USD' : 'ILS')}
                 onAccountEdit={() => setAccountPickerFor(e)}
-                onAmountEdit={e.category === 'credit' ? (newAmt) => {
+                onAmountEdit={(e.type === 'expense' || e.type === 'loan' || e.type === 'rental') ? (newAmt) => {
                   const baseId = cleanId(e.id)
-                  // Edit the month the charge actually belongs to (handles rolled-over items)
                   const targetDateStr = e.rolledOver ? e.originalDateStr : e.dateStr || todayStr
                   const mKey = targetDateStr.slice(0, 7)
-                  updateExpenseMonthlyAmount(baseId, mKey, newAmt)
+                  const absAmt = Math.abs(newAmt)
+                  // future income handled separately — always permanent
+                  if (e.type === 'expense' && e.category === 'credit') {
+                    // Credit card — always one-time (existing behavior)
+                    updateExpenseMonthlyAmount(baseId, mKey, absAmt)
+                    return
+                  }
+                  setPermPrompt({
+                    type: 'amount',
+                    event: e,
+                    value: absAmt,
+                    applyPermanent: () => {
+                      if (e.type === 'loan') {
+                        const loan = loans.find(l => l.id === baseId)
+                        const upd = { monthlyPayment: absAmt }
+                        // Also update future paymentSchedule entries so the change takes effect
+                        if (loan?.paymentSchedule?.length) {
+                          upd.paymentSchedule = loan.paymentSchedule.map(p =>
+                            p.date && p.date >= mKey ? { ...p, amount: absAmt } : p
+                          )
+                        }
+                        updateLoan(baseId, upd)
+                      }
+                      else if (e.type === 'expense') updateExpense(baseId, { amount: absAmt })
+                      else if (e.type === 'rental')  updateRentalIncome(baseId, { amount: absAmt })
+                    },
+                    applyOneTime: () => {
+                      if (e.type === 'loan')         updateLoanMonthlyAmount(baseId, mKey, absAmt)
+                      else if (e.type === 'expense') updateExpenseMonthlyAmount(baseId, mKey, absAmt)
+                      else if (e.type === 'rental')  updateRentalMonthlyAmount(baseId, mKey, absAmt)
+                    },
+                  })
                 } : undefined}
                 onPartial={(e.type === 'rental' || e.type === 'future') ? () => {
                   const baseId = cleanId(e.id)
@@ -815,9 +846,10 @@ export default function Dashboard() {
         return (
           <Backdrop
             className="fixed inset-0 z-[60] flex items-end justify-center bg-black bg-opacity-40"
+            style={{ animation: 'modalBackdropIn 0.2s ease-out' }}
             onClose={() => setShowAccountsModal(null)}
           >
-            <div className="relative bg-white rounded-t-2xl w-full shadow-xl max-h-[80vh] flex flex-col">
+            <div className="relative bg-white rounded-t-2xl w-full shadow-xl max-h-[80vh] flex flex-col" style={{ animation: 'modalSlideUp 0.35s cubic-bezier(.22,1,.36,1)' }}>
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                 <h3 className="font-bold text-gray-800 text-sm">
                   {isUSDModal ? '💵 יתרות חשבונות דולריים' : '💳 יתרות חשבונות שקליים'}
@@ -859,7 +891,7 @@ export default function Dashboard() {
                               onChange={ev => setAccBalDraft(ev.target.value)}
                               autoFocus
                               onKeyDown={ev => { if (ev.key === 'Enter') saveBal(); if (ev.key === 'Escape') { setEditingAccId(null); setAccBalDraft('') } }}
-                              className="w-24 text-left border border-blue-300 rounded-lg px-2 py-1 text-sm font-bold focus:outline-none focus:border-blue-500"
+                              className="w-24 text-left border-2 border-blue-300 rounded-lg px-2 py-1 text-sm font-bold focus:outline-none focus:border-blue-500"
                               dir="ltr"
                             />
                             <button onClick={saveBal} className="text-xs bg-blue-600 text-white px-2 py-1 rounded-lg font-medium">✓</button>
@@ -932,9 +964,10 @@ export default function Dashboard() {
         return (
           <Backdrop
             className="fixed inset-0 z-[60] flex items-end justify-center bg-black bg-opacity-40"
+            style={{ animation: 'modalBackdropIn 0.2s ease-out' }}
             onClose={() => setShowNetWorthModal(false)}
           >
-            <div className="relative bg-white rounded-t-2xl w-full shadow-xl max-h-[85vh] flex flex-col">
+            <div className="relative bg-white rounded-t-2xl w-full shadow-xl max-h-[85vh] flex flex-col" style={{ animation: 'modalSlideUp 0.35s cubic-bezier(.22,1,.36,1)' }}>
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                 <h3 className="font-bold text-gray-800 text-sm">📊 חישוב הון נטו</h3>
                 <button onClick={() => setShowNetWorthModal(false)} className="text-gray-400 text-xl leading-none">×</button>
@@ -1015,9 +1048,10 @@ export default function Dashboard() {
         return (
           <Backdrop
             className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-40"
+            style={{ animation: 'modalBackdropIn 0.2s ease-out' }}
             onClose={() => setInvUpdateRem(null)}
           >
-            <div className="bg-white w-full max-w-sm rounded-3xl mx-4 p-6">
+            <div className="bg-white w-full max-w-sm rounded-3xl mx-4 p-6" style={{ animation: 'modalPopIn 0.35s cubic-bezier(.22,1,.36,1)' }}>
               <p className="font-bold text-gray-800 text-base mb-1">📈 {inv?.name}</p>
               {curVal != null && <p className="text-xs text-gray-400 mb-4">שווי נוכחי: {symbol}{Number(curVal).toLocaleString()}</p>}
               <label className="text-xs text-gray-500 block mb-1">שווי עדכני ({symbol})</label>
@@ -1041,9 +1075,10 @@ export default function Dashboard() {
       {showAllReminders && (
         <Backdrop
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-40"
+          style={{ animation: 'modalBackdropIn 0.2s ease-out' }}
           onClose={() => setShowAllReminders(false)}
         >
-          <div className="bg-white w-full max-w-md rounded-3xl mx-4 scroll-right" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className="bg-white w-full max-w-md rounded-3xl mx-4 scroll-right" style={{ maxHeight: '80vh', overflowY: 'auto', animation: 'modalPopIn 0.35s cubic-bezier(.22,1,.36,1)' }}>
             <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
               <span className="font-bold text-gray-800 text-base">📋 כל התזכורות</span>
               <button onClick={() => setShowAllReminders(false)} className="text-gray-400 text-2xl font-light leading-none w-8 text-center">×</button>
@@ -1162,9 +1197,10 @@ export default function Dashboard() {
         return (
           <Backdrop
             className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-40"
+            style={{ animation: 'modalBackdropIn 0.2s ease-out' }}
             onClose={() => setShowDataModal(false)}
           >
-            <div className="bg-white w-full max-w-md rounded-3xl mx-4 scroll-right" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
+            <div className="bg-white w-full max-w-md rounded-3xl mx-4 scroll-right" style={{ maxHeight: '80vh', overflowY: 'auto', animation: 'modalPopIn 0.35s cubic-bezier(.22,1,.36,1)' }}>
               <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
                 <span className="font-bold text-gray-800 text-base">📋 נתונים</span>
                 <button onClick={() => setShowDataModal(false)} className="text-gray-400 text-2xl font-light leading-none w-8 text-center">×</button>
@@ -1308,18 +1344,39 @@ export default function Dashboard() {
         const baseId = cleanId(ev.id)
         const currentId = ev.accountId || null
         const pick = (newId) => {
-          if (ev.type === 'loan')         updateLoan(baseId,         { accountId: newId })
-          else if (ev.type === 'expense') updateExpense(baseId,      { accountId: newId })
-          else if (ev.type === 'rental')  updateRentalIncome(baseId, { accountId: newId })
-          else if (ev.type === 'future')  updateFutureIncome(baseId, { accountId: newId })
+          // future income is always permanent (one-time item)
+          if (ev.type === 'future') {
+            updateFutureIncome(baseId, { accountId: newId })
+            setAccountPickerFor(null)
+            return
+          }
+          // Recurring items — ask permanent or one-time
+          setPermPrompt({
+            type: 'account',
+            event: ev,
+            value: newId,
+            applyPermanent: () => {
+              if (ev.type === 'loan')         updateLoan(baseId,         { accountId: newId })
+              else if (ev.type === 'expense') updateExpense(baseId,      { accountId: newId })
+              else if (ev.type === 'rental')  updateRentalIncome(baseId, { accountId: newId })
+            },
+            applyOneTime: () => {
+              const targetDateStr = ev.rolledOver ? ev.originalDateStr : ev.dateStr || `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}-${String(new Date().getDate()).padStart(2,'0')}`
+              const mKey = targetDateStr.slice(0, 7)
+              if (ev.type === 'loan')         updateLoanMonthlyAccount(baseId, mKey, newId)
+              else if (ev.type === 'expense') updateExpenseMonthlyAccount(baseId, mKey, newId)
+              else if (ev.type === 'rental')  updateRentalMonthlyAccount(baseId, mKey, newId)
+            },
+          })
           setAccountPickerFor(null)
         }
         return (
           <Backdrop
             className="fixed inset-0 z-[60] flex items-end justify-center bg-black bg-opacity-40"
+            style={{ animation: 'modalBackdropIn 0.2s ease-out' }}
             onClose={() => setAccountPickerFor(null)}
           >
-            <div className="relative bg-white rounded-t-2xl w-full shadow-xl max-h-[80vh] flex flex-col">
+            <div className="relative bg-white rounded-t-2xl w-full shadow-xl max-h-[80vh] flex flex-col" style={{ animation: 'modalSlideUp 0.35s cubic-bezier(.22,1,.36,1)' }}>
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                 <h3 className="font-bold text-gray-800 text-sm">
                   {isUSD ? '💵 בחר חשבון דולרי' : '💳 בחר חשבון שקלי'}
@@ -1357,6 +1414,43 @@ export default function Dashboard() {
           </Backdrop>
         )
       })()}
+
+      {/* Permanent vs one-time prompt */}
+      {permPrompt && (
+        <Backdrop
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black bg-opacity-40"
+          style={{ animation: 'modalBackdropIn 0.2s ease-out' }}
+          onClose={() => setPermPrompt(null)}
+        >
+          <div className="relative bg-white rounded-2xl w-[85%] max-w-sm shadow-xl p-5" style={{ animation: 'modalPopIn 0.35s cubic-bezier(.22,1,.36,1)' }}>
+            <h3 className="font-bold text-gray-800 text-base text-center mb-1">
+              {permPrompt.type === 'account' ? 'שינוי חשבון' : 'שינוי סכום'}
+            </h3>
+            <p className="text-sm text-gray-500 text-center mb-4">
+              {permPrompt.event.name}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { permPrompt.applyPermanent(); setPermPrompt(null) }}
+                className="flex-1 py-3 rounded-xl bg-blue-500 text-white font-bold text-sm active:bg-blue-600"
+              >
+                שינוי קבוע
+              </button>
+              <button
+                onClick={() => { permPrompt.applyOneTime(); setPermPrompt(null) }}
+                className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 font-bold text-sm active:bg-gray-200"
+              >
+                חד-פעמי
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 text-center mt-3">
+              {permPrompt.type === 'account'
+                ? 'קבוע = כל החיובים העתידיים. חד-פעמי = רק החודש הזה.'
+                : 'קבוע = הסכום ישתנה לצמיתות. חד-פעמי = רק החודש הזה.'}
+            </p>
+          </div>
+        </Backdrop>
+      )}
     </div>
   )
 }

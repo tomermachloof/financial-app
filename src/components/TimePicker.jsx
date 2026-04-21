@@ -1,11 +1,36 @@
 import { useState, useEffect, useRef } from 'react'
 
+// Inject animation keyframes once
+if (typeof document !== 'undefined' && !document.getElementById('tp-anim')) {
+  const s = document.createElement('style')
+  s.id = 'tp-anim'
+  s.textContent = `
+    @keyframes tpBackdropIn { from { opacity:0; } to { opacity:1; } }
+    @keyframes tpSheetIn {
+      0%   { opacity:0; transform:scale(0.75) translateY(60px); }
+      50%  { opacity:1; transform:scale(1.03) translateY(-4px); }
+      100% { opacity:1; transform:scale(1) translateY(0); }
+    }
+  `
+  document.head.appendChild(s)
+}
+
 // ── בוחר שעה בקפיצות של 5 דקות, עם לשוניות בוקר/ערב ─────────────
 // value / onChange: 'HH:MM' בפורמט 24 שעות
 // placeholder: טקסט כשאין ערך
 // defaultHint: שעה מוצעת להבלטה כשהבוחר נפתח ללא ערך
-export default function TimePicker({ value, onChange, placeholder = 'בחר שעה', defaultHint = null }) {
+// label: כותרת שתוצג בראש החלונית (למשל "תחילת צילומים")
+// onPicked: callback אחרי בחירת שעה
+// triggerOpen / onOpenHandled: פתיחה אוטומטית מבחוץ
+export default function TimePicker({ value, onChange, placeholder = 'בחר שעה', defaultHint = null, label = null, onPicked = null, triggerOpen = false, onOpenHandled = null }) {
   const [open, setOpen] = useState(false)
+  // Auto-open when triggerOpen flips to true
+  useEffect(() => {
+    if (triggerOpen) {
+      setOpen(true)
+      onOpenHandled?.()
+    }
+  }, [triggerOpen])
   // 'am' = 00:00–11:45 , 'pm' = 12:00–23:45
   const [period, setPeriod] = useState('am')
   const wrapRef = useRef(null)
@@ -42,7 +67,10 @@ export default function TimePicker({ value, onChange, placeholder = 'בחר שע
   const pick = (slot) => {
     onChange(slot)
     setOpen(false)
+    onPicked?.(slot)
   }
+
+  const displayLabel = label || 'בחר שעה'
 
   return (
     <>
@@ -60,6 +88,7 @@ export default function TimePicker({ value, onChange, placeholder = 'בחר שע
       {open && (
         <div
           className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm"
+          style={{ animation: 'tpBackdropIn 0.2s ease-out' }}
           onMouseDown={e => { pressStartedOnBackdropRef.current = e.target === e.currentTarget }}
           onMouseUp={e => {
             if (pressStartedOnBackdropRef.current && e.target === e.currentTarget) setOpen(false)
@@ -75,6 +104,7 @@ export default function TimePicker({ value, onChange, placeholder = 'בחר שע
             ref={wrapRef}
             onClick={e => e.stopPropagation()}
             className="w-full sm:w-[380px] bg-white border-t sm:border border-gray-200 sm:rounded-2xl rounded-t-3xl shadow-2xl p-4 space-y-3 max-h-[85vh] overflow-hidden flex flex-col"
+            style={{ animation: 'tpSheetIn 0.35s cubic-bezier(.22,1,.36,1)', transformOrigin: 'bottom center' }}
           >
             {/* Header */}
             <div className="flex justify-between items-center">
@@ -85,7 +115,7 @@ export default function TimePicker({ value, onChange, placeholder = 'בחר שע
               >
                 נקה
               </button>
-              <p className="text-sm font-bold text-gray-700">בחר שעה</p>
+              <p className="text-base font-bold text-gray-800">{displayLabel}</p>
               <button
                 type="button"
                 onClick={() => setOpen(false)}

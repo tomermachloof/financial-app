@@ -7,6 +7,7 @@ import DayOfMonthPicker from './DayOfMonthPicker'
 const ACTIONS = [
   { id: 'reminder',      icon: '🔔', label: 'תזכורת',            desc: 'חד-פעמית או חודשית חוזרת' },
   { id: 'income_expense', icon: '💸', label: 'הכנסה / הוצאה',    desc: 'חד פעמי או חוזר כל חודש' },
+  { id: 'new_project',   icon: '🎬', label: 'פרויקט חדש',         desc: 'קולנוע, טלוויזיה, תיאטרון או מסחרי' },
   { id: 'edit_income',   icon: '📗', label: 'עריכת הכנסה',       desc: 'בחר פרויקט מתוך ההכנסות' },
   { id: 'new_loan',      icon: '➕', label: 'הלוואה חדשה',       desc: 'כולל גרירת לוח סילוקין' },
   { id: 'friend_loan',   icon: '🤝', label: 'הלוואה מחבר',      desc: 'קיבלתי כסף ואחזיר בתאריך' },
@@ -57,11 +58,12 @@ export default function QuickAddModal({ onClose, editTarget }) {
     updateAccount,
     addFutureIncome, updateFutureIncome,
     addRentalIncome, updateRentalIncome,
-    updateLoan,
+    updateLoan, updateLoanMonthlyAmount,
     updateInvestment,
-    updateExpense,
+    updateExpense, updateExpenseMonthlyAmount,
     addReminder,
     addExpense,
+    updateRentalMonthlyAmount,
   } = useStore()
 
   const initForm = () => {
@@ -74,6 +76,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
   const [splits, setSplits] = useState([{ accountId: '', amount: '' }])
   const [saved, setSaved]   = useState(false)
   const [errors, setErrors] = useState([])
+  const [permPrompt, setPermPrompt] = useState(null) // { applyPermanent, applyOneTime, name }
 
   const fv = (key) => form[key] ?? ''
   const sv = (key, val) => { setForm(prev => ({ ...prev, [key]: val })); setErrors(prev => prev.filter(e => e !== key)) }
@@ -139,15 +142,49 @@ export default function QuickAddModal({ onClose, editTarget }) {
         if (errs.length) { setErrors(errs); return }
         if (editTarget?.item) {
           const { type, item } = editTarget
+          const oldAmt = item.currency === 'USD' ? item.usdAmount : item.amount
+          const amountChanged = Math.abs(amount - Math.abs(oldAmt || 0)) > 0.01
           if (type === 'expense') {
-            const expUpd = item.currency === 'USD'
-              ? { name: fv('name'), usdAmount: amount, chargeDay: parseInt(fv('chargeDay')), accountId: fv('accountId') || null, destAccountId: fv('destAccountId') || null }
-              : { name: fv('name'), amount, chargeDay: parseInt(fv('chargeDay')), accountId: fv('accountId') || null, destAccountId: fv('destAccountId') || null }
-            updateExpense(item.id, expUpd)
+            const metaUpd = { name: fv('name'), chargeDay: parseInt(fv('chargeDay')), accountId: fv('accountId') || null, destAccountId: fv('destAccountId') || null }
+            if (amountChanged) {
+              const mKey = todayStr.slice(0, 7)
+              setPermPrompt({
+                name: item.name,
+                applyPermanent: () => {
+                  const expUpd = item.currency === 'USD' ? { ...metaUpd, usdAmount: amount } : { ...metaUpd, amount }
+                  updateExpense(item.id, expUpd)
+                  flash()
+                },
+                applyOneTime: () => {
+                  updateExpense(item.id, metaUpd)
+                  updateExpenseMonthlyAmount(item.id, mKey, amount)
+                  flash()
+                },
+              })
+              break
+            }
+            updateExpense(item.id, metaUpd)
           } else if (type === 'rental') {
-            const upd = { name: fv('name'), chargeDay: parseInt(fv('chargeDay')), accountId: fv('accountId') || null }
-            if (item.currency === 'USD') upd.usdAmount = amount; else upd.amount = amount
-            updateRentalIncome(item.id, upd)
+            const metaUpd = { name: fv('name'), chargeDay: parseInt(fv('chargeDay')), accountId: fv('accountId') || null }
+            if (amountChanged) {
+              const mKey = todayStr.slice(0, 7)
+              setPermPrompt({
+                name: item.name,
+                applyPermanent: () => {
+                  if (item.currency === 'USD') metaUpd.usdAmount = amount; else metaUpd.amount = amount
+                  updateRentalIncome(item.id, metaUpd)
+                  flash()
+                },
+                applyOneTime: () => {
+                  updateRentalIncome(item.id, metaUpd)
+                  updateRentalMonthlyAmount(item.id, mKey, amount)
+                  flash()
+                },
+              })
+              break
+            }
+            if (item.currency === 'USD') metaUpd.usdAmount = amount; else metaUpd.amount = amount
+            updateRentalIncome(item.id, metaUpd)
           } else if (type === 'future') {
             updateFutureIncome(item.id, { name: fv('name'), amount: item.isPayment ? -amount : amount, expectedDate: fv('date') || null, accountId: fv('accountId') || null })
           }
@@ -277,8 +314,37 @@ export default function QuickAddModal({ onClose, editTarget }) {
         if (!fv('loanId')) errs.push('loanId')
         if (isNaN(val))    errs.push('value')
         if (errs.length) { setErrors(errs); return }
-        const upd = { [fv('field') || 'balanceOverride']: val }
+        const fieldKey = fv('field') || 'balanceOverride'
         const cd = parseInt(fv('chargeDay'))
+        // monthlyPayment on a loan from editTarget → ask permanent/one-time
+        if (editTarget?.item && fieldKey === 'monthlyPayment') {
+          const loanId = fv('loanId')
+          const mKey = todayStr.slice(0, 7)
+          const loanItem = loans.find(l => l.id === loanId)
+          setPermPrompt({
+            name: loanItem?.name || 'הלוואה',
+            applyPermanent: () => {
+              const upd = { monthlyPayment: val }
+              if (!isNaN(cd) && cd > 0) upd.chargeDay = cd
+              // Also update future paymentSchedule entries
+              if (loanItem?.paymentSchedule?.length) {
+                const mKey2 = todayStr.slice(0, 7)
+                upd.paymentSchedule = loanItem.paymentSchedule.map(p =>
+                  p.date && p.date >= mKey2 ? { ...p, amount: val } : p
+                )
+              }
+              updateLoan(loanId, upd)
+              flash()
+            },
+            applyOneTime: () => {
+              updateLoanMonthlyAmount(loanId, mKey, val)
+              if (!isNaN(cd) && cd > 0) updateLoan(loanId, { chargeDay: cd })
+              flash()
+            },
+          })
+          break
+        }
+        const upd = { [fieldKey]: val }
         if (editTarget?.item && !isNaN(cd) && cd > 0) upd.chargeDay = cd
         updateLoan(fv('loanId'), upd)
         flash(); break
@@ -305,6 +371,69 @@ export default function QuickAddModal({ onClose, editTarget }) {
 
   const renderForm = () => {
     switch (step) {
+
+      case 'new_project': {
+        return (
+          <div className="space-y-3 py-2">
+            <div className="flex gap-2 mb-2">
+              <button
+                type="button"
+                onClick={() => sv('owner', 'tomer')}
+                className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors ${(fv('owner') || 'tomer') === 'tomer' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400'}`}
+              >תומר</button>
+              <button
+                type="button"
+                onClick={() => sv('owner', 'yael')}
+                className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors ${fv('owner') === 'yael' ? 'bg-pink-500 text-white' : 'bg-gray-100 text-gray-400'}`}
+              >יעל</button>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onClose()
+                navigate('/income', { state: { newProjectType: 'film', newProjectOwner: fv('owner') || 'tomer' } })
+              }}
+              className="w-full py-5 bg-blue-50 hover:bg-blue-100 rounded-2xl flex flex-col items-center gap-1 transition-colors active:scale-95"
+            >
+              <span className="text-3xl">🎬</span>
+              <span className="text-sm font-bold text-blue-700">קולנוע / טלוויזיה</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onClose()
+                navigate('/income', { state: { newProjectType: 'theater', newProjectOwner: fv('owner') || 'tomer' } })
+              }}
+              className="w-full py-5 bg-purple-50 hover:bg-purple-100 rounded-2xl flex flex-col items-center gap-1 transition-colors active:scale-95"
+            >
+              <span className="text-3xl">🎭</span>
+              <span className="text-sm font-bold text-purple-700">תיאטרון</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onClose()
+                navigate('/income', { state: { newProjectType: 'commercial', newProjectOwner: fv('owner') || 'tomer' } })
+              }}
+              className="w-full py-5 bg-orange-50 hover:bg-orange-100 rounded-2xl flex flex-col items-center gap-1 transition-colors active:scale-95"
+            >
+              <span className="text-3xl">💼</span>
+              <span className="text-sm font-bold text-orange-700">מסחרי / קמפיין</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onClose()
+                navigate('/income', { state: { newProjectType: 'dubbing', newProjectOwner: fv('owner') || 'tomer' } })
+              }}
+              className="w-full py-5 bg-pink-100 hover:bg-pink-200 rounded-2xl flex flex-col items-center gap-1 transition-colors active:scale-95"
+            >
+              <span className="text-3xl">🎙️</span>
+              <span className="text-sm font-bold text-pink-700">דיבוב</span>
+            </button>
+          </div>
+        )
+      }
 
       case 'edit_income': {
         if (!futureIncome.length) {
@@ -677,6 +806,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-40"
+      style={{ animation: 'modalBackdropIn 0.2s ease-out' }}
       onMouseDown={ev => { pressStartedOnBackdropRef.current = ev.target === ev.currentTarget }}
       onMouseUp={ev => {
         if (pressStartedOnBackdropRef.current && ev.target === ev.currentTarget) onClose()
@@ -690,10 +820,10 @@ export default function QuickAddModal({ onClose, editTarget }) {
     >
       <div
         className="bg-white w-full max-w-md rounded-3xl mx-4 scroll-right"
-        style={{ maxHeight: '88vh', overflowY: 'auto' }}
+        style={{ maxHeight: '88vh', overflowY: 'auto', animation: 'modalPopIn 0.35s cubic-bezier(.22,1,.36,1)' }}
         onKeyDown={(e) => {
           if (e.key !== 'Enter') return
-          if (step === 'pick' || step === 'edit_income') return
+          if (step === 'pick' || step === 'edit_income' || step === 'new_project') return
           const tag = e.target?.tagName
           if (tag === 'TEXTAREA' && !e.shiftKey) return
           e.preventDefault()
@@ -729,7 +859,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
           ) : (
             <>
               <div className="mt-1">{renderForm()}</div>
-              {step !== 'edit_income' && (
+              {step !== 'edit_income' && step !== 'new_project' && (
                 <button
                   onClick={handleSave}
                   className={`w-full py-3.5 rounded-2xl font-bold text-sm mt-4 transition-all duration-200 ${
@@ -743,6 +873,39 @@ export default function QuickAddModal({ onClose, editTarget }) {
           )}
         </div>
       </div>
+
+      {/* Permanent vs one-time prompt */}
+      {permPrompt && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black bg-opacity-40"
+          style={{ animation: 'modalBackdropIn 0.15s ease-out' }}
+          onClick={() => setPermPrompt(null)}
+        >
+          <div
+            className="bg-white rounded-2xl w-[85%] max-w-sm shadow-xl p-5"
+            style={{ animation: 'modalPopIn 0.35s cubic-bezier(.22,1,.36,1)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="font-bold text-gray-800 text-base text-center mb-1">שינוי סכום</h3>
+            <p className="text-center text-xs text-gray-500 mb-4">{permPrompt.name}</p>
+            <div className="space-y-2">
+              <button
+                onClick={() => { setPermPrompt(null); permPrompt.applyPermanent() }}
+                className="w-full py-3 rounded-xl bg-blue-600 text-white font-bold text-sm"
+              >
+                🔒 שינוי קבוע
+              </button>
+              <button
+                onClick={() => { setPermPrompt(null); permPrompt.applyOneTime() }}
+                className="w-full py-3 rounded-xl bg-gray-100 text-gray-700 font-bold text-sm"
+              >
+                📅 חד-פעמי (החודש בלבד)
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-400 text-center mt-3">קבוע = ישנה את הסכום מעכשיו והלאה. חד-פעמי = רק החודש הנוכחי.</p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
