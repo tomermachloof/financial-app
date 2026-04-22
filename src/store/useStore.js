@@ -703,6 +703,11 @@ export function patchCloudState(state) {
     s.investments = [...invs, { id: 'inv12', name: 'קופת גמל אביגיל', value: 0, type: 'savings', owner: 'יעל' }]
   }
 
+  // הסרת הלוואות דיסקונט כפולות שחוזרות מהענן
+  if (s.loans) {
+    s.loans = s.loans.filter(l => l.id !== 'l13' && l.id !== 'l10' && l.id !== 'l11' && l.name !== 'דיסקונט תומר' && l.name !== 'דיסקונט יעל')
+  }
+
   if (!s.reminders) s.reminders = []
   if (!s.dismissedEvents) s.dismissedEvents = []
 

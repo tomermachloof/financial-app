@@ -2079,36 +2079,44 @@ function IncomeCard({ item, onEdit, onReceive, onUndo, onWorkLog, onClose, onReo
 
   const sessionCount = (item.sessions || []).length
 
+  const ownerGradient =
+    isReceived ? {} :
+    item.owner === 'tomer' ? { background: 'linear-gradient(135deg, #312e81 0%, #4338ca 50%, #6366f1 100%)' } :
+    item.owner === 'yael'  ? { background: 'linear-gradient(135deg, #9d174d 0%, #db2777 50%, #f472b6 100%)' } :
+                              {}
+  const hasGradient = !isReceived && (item.owner === 'tomer' || item.owner === 'yael')
+
   return (
     <div
-      className={`card p-4 ${days !== null && days <= 3 && !isReceived ? uc : ''} cursor-pointer`}
+      className={`card p-4 ${hasGradient ? 'text-white' : ''} ${days !== null && days <= 3 && !isReceived ? uc : ''} cursor-pointer`}
+      style={ownerGradient}
       onClick={onEdit}
     >
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className={`font-semibold ${isReceived ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+            <h3 className={`font-semibold ${isReceived ? 'text-gray-400 line-through' : hasGradient ? 'text-white' : 'text-gray-800'}`}>
               {item.name}
             </h3>
             {isReceived ? (
               <span className="text-xs bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">✓ התקבל</span>
             ) : isWorkLog ? (
-              <span className={`text-xs px-2 py-0.5 rounded-full ${item.projectType === 'commercial' ? 'bg-orange-100 text-orange-700' : item.projectType === 'theater' ? 'bg-purple-100 text-purple-700' : item.projectType === 'dubbing' ? 'bg-pink-200 text-pink-800' : 'bg-blue-100 text-blue-700'}`}>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white' : item.projectType === 'commercial' ? 'bg-orange-100 text-orange-700' : item.projectType === 'theater' ? 'bg-purple-100 text-purple-700' : item.projectType === 'dubbing' ? 'bg-pink-200 text-pink-800' : 'bg-blue-100 text-blue-700'}`}>
                 {item.projectType === 'commercial' ? '💼' : item.projectType === 'theater' ? '🎭' : item.projectType === 'dubbing' ? '🎙️' : '🎬'} בתהוות{sessionCount > 0 ? ` · ${sessionCount} רישומים` : ''}
               </span>
             ) : (
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badgeColor}`}>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${hasGradient ? 'bg-white bg-opacity-20 text-white' : badgeColor}`}>
                 {label}
               </span>
             )}
             {item.invoiceSent
-              ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">📄 חשבונית</span>
-              : <span className="text-xs bg-red-50 text-red-400 px-2 py-0.5 rounded-full">חשבונית ✕</span>
+              ? <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white' : 'bg-green-100 text-green-700'}`}>📄 חשבונית</span>
+              : <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white text-opacity-70' : 'bg-red-50 text-red-400'}`}>חשבונית ✕</span>
             }
-            {item.owner === 'tomer' && (
+            {item.owner === 'tomer' && !hasGradient && (
               <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-semibold">תומר</span>
             )}
-            {item.owner === 'yael' && (
+            {item.owner === 'yael' && !hasGradient && (
               <span className="text-xs bg-pink-100 text-pink-600 px-2 py-0.5 rounded-full font-semibold">יעל</span>
             )}
           </div>
@@ -2117,7 +2125,7 @@ function IncomeCard({ item, onEdit, onReceive, onUndo, onWorkLog, onClose, onReo
             const shootDays = (item.sessions || []).filter(s => s.type === 'צילום').length
             const contract = Number(item.commercialShootDaysContract) || 0
             return (
-              <p className="text-xs text-orange-500 mt-1 font-medium">
+              <p className={`text-xs mt-1 font-medium ${hasGradient ? 'text-white text-opacity-80' : 'text-orange-500'}`}>
                 {item.commercialClient && <span>{item.commercialClient}</span>}
                 {item.commercialClient && contract > 0 && ' · '}
                 {contract > 0 && <span>📷 {shootDays}/{contract} ימי צילום</span>}
@@ -2125,18 +2133,18 @@ function IncomeCard({ item, onEdit, onReceive, onUndo, onWorkLog, onClose, onReo
             )
           })()}
           {item.expectedDate && (
-            <p className="text-xs text-gray-400 mt-1">
+            <p className={`text-xs mt-1 ${hasGradient ? 'text-white text-opacity-70' : 'text-gray-400'}`}>
               {isReceived ? 'התקבל' : 'צפוי'}: {formatDate(item.expectedDate)}
             </p>
           )}
           {item.notes && (
-            <p className="text-xs text-gray-400 mt-1 truncate">{item.notes}</p>
+            <p className={`text-xs mt-1 truncate ${hasGradient ? 'text-white text-opacity-70' : 'text-gray-400'}`}>{item.notes}</p>
           )}
         </div>
 
         <div className="flex flex-col items-end gap-2 mr-3">
           <div className="text-left">
-            <span className={`text-base font-bold ${isReceived ? 'text-gray-400' : isWorkLog && item.projectType === 'commercial' ? 'text-orange-600' : isWorkLog && item.projectType === 'theater' ? 'text-purple-600' : isWorkLog && item.projectType === 'dubbing' ? 'text-pink-600' : isWorkLog ? 'text-blue-600' : 'text-green-600'}`}>
+            <span className={`text-base font-bold ${isReceived ? 'text-gray-400' : hasGradient ? 'text-white' : isWorkLog && item.projectType === 'commercial' ? 'text-orange-600' : isWorkLog && item.projectType === 'theater' ? 'text-purple-600' : isWorkLog && item.projectType === 'dubbing' ? 'text-pink-600' : isWorkLog ? 'text-blue-600' : 'text-green-600'}`}>
               {(item.amount || 0) > 0 ? formatILS(item.amount) : isWorkLog ? '—' : '—'}
             </span>
             {(item.amount || 0) > 0 && (item.agentCommission || item.addVat) && (() => {
@@ -2146,12 +2154,12 @@ function IncomeCard({ item, onEdit, onReceive, onUndo, onWorkLog, onClose, onReo
               return (
                 <>
                   {item.agentCommission && (
-                    <p className="text-xs text-orange-500 font-semibold">
+                    <p className={`text-xs font-semibold ${hasGradient ? 'text-white text-opacity-80' : 'text-orange-500'}`}>
                       אחרי עמלת סוכן: {formatILS(afterAgent)}
                     </p>
                   )}
                   {item.addVat && (
-                    <p className="text-xs text-orange-500 font-semibold">
+                    <p className={`text-xs font-semibold ${hasGradient ? 'text-white text-opacity-80' : 'text-orange-500'}`}>
                       אחרי מע״מ: {formatILS(afterVat)}
                     </p>
                   )}
@@ -2170,7 +2178,7 @@ function IncomeCard({ item, onEdit, onReceive, onUndo, onWorkLog, onClose, onReo
               </button>
               <button
                 onClick={onClose}
-                className="text-xs border border-gray-300 text-gray-500 px-3 py-1.5 rounded-lg font-medium"
+                className={`text-xs px-3 py-1.5 rounded-lg font-medium ${hasGradient ? 'border border-white border-opacity-40 text-white text-opacity-80' : 'border border-gray-300 text-gray-500'}`}
               >
                 סגור
               </button>
@@ -2186,7 +2194,7 @@ function IncomeCard({ item, onEdit, onReceive, onUndo, onWorkLog, onClose, onReo
               </button>
               <button
                 onClick={onReopen}
-                className="text-xs border border-gray-300 text-gray-500 px-3 py-1.5 rounded-lg font-medium"
+                className={`text-xs px-3 py-1.5 rounded-lg font-medium ${hasGradient ? 'border border-white border-opacity-40 text-white text-opacity-80' : 'border border-gray-300 text-gray-500'}`}
               >
                 ↩ בהתהוות
               </button>

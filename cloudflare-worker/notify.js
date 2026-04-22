@@ -51,6 +51,17 @@ export default {
       }
     }
 
+    // ── ניתוח חוזה / מסמך עם Claude ──
+    if (url.pathname === '/analyze' && request.method === 'POST') {
+      try {
+        const body = await request.json()
+        const result = await analyzeDocument(body, env)
+        return new Response(JSON.stringify(result), { headers: { ...cors, 'Content-Type': 'application/json' } })
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } })
+      }
+    }
+
     // ── בדיקת התראות (ידני) ──
     if (url.pathname === '/test') {
       try {
@@ -61,6 +72,18 @@ export default {
         return new Response('error: ' + (err && err.message || String(err)), { status: 500, headers: cors })
       }
     }
+
+    // ── סטטוס התראות — בדיקה אם ההתראה של היום נשלחה ──
+    if (url.pathname === '/status') {
+      try {
+        const logRes = await fetchSupabase(env, 'app_state?id=eq.notification_log&select=state')
+        const log = logRes.ok && logRes.data.length > 0 ? logRes.data[0].state : null
+        return new Response(JSON.stringify(log), { headers: { ...cors, 'Content-Type': 'application/json' } })
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } })
+      }
+    }
+
     return new Response('ok', { status: 200, headers: cors })
   },
 }
@@ -324,7 +347,7 @@ async function sendDailyNotification(env) {
 
   const body = todayLines.join('\n') + '\n\n' + overdueLine
 
-  // ── 7. Send push to every registered device ────────────────
+  // ── 7. Send push to every registered device (with retry) ────
   const vapid = {
     subject:    env.VAPID_SUBJECT,
     publicKey:  env.VAPID_PUBLIC_KEY,
@@ -336,6 +359,7 @@ async function sendDailyNotification(env) {
     options: { ttl: 60 * 60 * 4 }, // 4h TTL
   }
 
+  const MAX_RETRIES = 3
   const keep = []
   let sent = 0
   let dead = 0
@@ -343,24 +367,37 @@ async function sendDailyNotification(env) {
 
   for (const sub of subscriptions) {
     if (!sub || !sub.endpoint) continue
-    try {
-      const payload = await buildPushPayload(message, sub, vapid)
-      const res = await fetch(sub.endpoint, payload)
-      if (res.ok) {
-        keep.push(sub)
-        sent++
-      } else if (res.status === 404 || res.status === 410) {
-        // Subscription gone — drop it permanently
-        dead++
-      } else {
-        // Transient error — keep the subscription, try again next run
-        keep.push(sub)
-        const text = await res.text().catch(() => '')
-        errors.push(`${res.status}: ${text.slice(0, 120)}`)
+    let success = false
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const payload = await buildPushPayload(message, sub, vapid)
+        const res = await fetch(sub.endpoint, payload)
+        if (res.ok) {
+          keep.push(sub)
+          sent++
+          success = true
+          break
+        } else if (res.status === 404 || res.status === 410) {
+          // Subscription gone — drop it permanently
+          dead++
+          success = true // not an error, just expired
+          break
+        } else {
+          const text = await res.text().catch(() => '')
+          if (attempt === MAX_RETRIES) {
+            keep.push(sub)
+            errors.push(`${res.status}: ${text.slice(0, 120)}`)
+          }
+          // Wait before retry
+          await new Promise(r => setTimeout(r, 1000 * attempt))
+        }
+      } catch (err) {
+        if (attempt === MAX_RETRIES) {
+          keep.push(sub)
+          errors.push(err && err.message || String(err))
+        }
+        await new Promise(r => setTimeout(r, 1000 * attempt))
       }
-    } catch (err) {
-      keep.push(sub)
-      errors.push(err && err.message || String(err))
     }
   }
 
@@ -371,6 +408,18 @@ async function sendDailyNotification(env) {
 
   console.log(`Push dispatch: sent=${sent} dead=${dead} kept=${keep.length} errors=${errors.length}`)
   if (errors.length > 0) console.log('errors:', errors.join(' | '))
+
+  // ── 8. Log result to Supabase ──────────────────────────────
+  const logEntry = {
+    date: realTodayStr,
+    sent,
+    dead,
+    errors: errors.length,
+    errorDetails: errors.length > 0 ? errors.join(' | ').slice(0, 500) : null,
+    todayEvents: todayItems.length,
+    overdueEvents: overdueCount,
+  }
+  await upsertSupabase(env, 'notification_log', logEntry)
 
   if (sent === 0 && dead === 0 && errors.length > 0) {
     throw new Error('All push sends failed: ' + errors.join(' | '))
@@ -435,4 +484,127 @@ async function calcDistance(destination, env) {
     distanceText: el.distance.text,
     isAboveThreshold: distanceKm > DISTANCE_THRESHOLD_KM,
   }
+}
+
+// ── ניתוח מסמך עם Claude API ──────────────────────────────────
+
+const PROMPTS = {
+  loan: `אתה מנתח לוח סילוקין / חוזה הלוואה. החזר JSON בלבד (ללא טקסט נוסף) עם השדות הבאים:
+{
+  "name": "שם ההלוואה או הבנק",
+  "totalAmount": 0,
+  "monthlyPayment": 0,
+  "chargeDay": 0,
+  "durationMonths": 0,
+  "interestRate": 0,
+  "interestType": "fixed או prime",
+  "startDate": "YYYY-MM-DD",
+  "balanceOverride": null,
+  "paymentSchedule": [{ "date": "YYYY-MM-DD", "amount": 0 }]
+}
+אם שדה לא נמצא — החזר null. paymentSchedule הוא מערך של כל התשלומים מהלוח.`,
+
+  film: `אתה מנתח חוזה עבודה בתחום הקולנוע / טלוויזיה. החזר JSON בלבד (ללא טקסט נוסף) עם השדות הבאים:
+{
+  "name": "שם הפרויקט / הסדרה / הסרט",
+  "amount": 0,
+  "photoDayRate": 0,
+  "rehearsalPct12": 15,
+  "rehearsalPct3plus": 30,
+  "overtimeTiers": [{ "fromHour": 11, "pct": 125 }, { "fromHour": 13, "pct": 150 }],
+  "agentCommission": false,
+  "addVat": false,
+  "expectedDate": "YYYY-MM-DD או null",
+  "notes": "פרטים נוספים מהחוזה"
+}
+הסבר:
+- photoDayRate = תעריף ליום צילום
+- rehearsalPct12 = אחוז מתעריף יום צילום לשעת חזרה/מדידה (שעות 1-2)
+- rehearsalPct3plus = אחוז לשעה 3+
+- overtimeTiers = מדרגות שעות נוספות: fromHour = מאיזו שעה, pct = אחוז מהבסיס
+- agentCommission = true אם יש עמלת סוכן
+- addVat = true אם מוזכר מע״מ
+אם שדה לא נמצא — החזר null.`,
+
+  theater: `אתה מנתח חוזה עבודה בתחום התיאטרון. החזר JSON בלבד (ללא טקסט נוסף) עם השדות הבאים:
+{
+  "name": "שם ההפקה / ההצגה",
+  "amount": 0,
+  "theaterShowPrice": 0,
+  "theaterMonthlyRehearsal": 0,
+  "theaterRehearsalTotal": 0,
+  "theaterPostRehearsal": 0,
+  "agentCommission": false,
+  "addVat": false,
+  "expectedDate": "YYYY-MM-DD או null",
+  "notes": "פרטים נוספים מהחוזה"
+}
+הסבר:
+- theaterShowPrice = מחיר להצגה בודדת
+- theaterMonthlyRehearsal = סכום חודשי לתקופת חזרות (לפני עלייה)
+- theaterRehearsalTotal = סכום כולל לכל תקופת החזרות (אם מוזכר)
+- theaterPostRehearsal = מחיר חזרה בודדת (אחרי עלייה)
+אם שדה לא נמצא — החזר null.`,
+
+  commercial: `אתה מנתח חוזה עבודה מסחרי / קמפיין. החזר JSON בלבד (ללא טקסט נוסף) עם השדות הבאים:
+{
+  "name": "שם הפרויקט / הקמפיין",
+  "amount": 0,
+  "commercialClient": "שם הלקוח / המותג",
+  "commercialPlatform": "instagram / tiktok / youtube / tv / other",
+  "commercialShootDaysContract": 0,
+  "agentCommission": false,
+  "addVat": false,
+  "expectedDate": "YYYY-MM-DD או null",
+  "notes": "פרטים נוספים מהחוזה"
+}
+הסבר:
+- commercialClient = שם החברה או המותג
+- commercialPlatform = הפלטפורמה העיקרית (instagram, tiktok, youtube, tv, other)
+- commercialShootDaysContract = כמות ימי צילום שנקבעו בחוזה
+אם שדה לא נמצא — החזר null.`,
+}
+
+async function analyzeDocument({ base64, mediaType, type }, env) {
+  const apiKey = env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured')
+  if (!base64) throw new Error('missing base64 file data')
+
+  const prompt = PROMPTS[type] || PROMPTS.loan
+
+  // PDF → document type, images → image type
+  const isPdf = mediaType === 'application/pdf'
+  const fileBlock = isPdf
+    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
+    : { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: base64 } }
+
+  const content = [fileBlock, { type: 'text', text: prompt }]
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content }],
+    }),
+  })
+
+  if (!res.ok) {
+    const errText = await res.text()
+    throw new Error(`Claude API ${res.status}: ${errText}`)
+  }
+
+  const data = await res.json()
+  const text = data.content?.[0]?.text || ''
+
+  // Extract JSON from response
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('לא הצלחתי לחלץ נתונים מהמסמך')
+
+  return JSON.parse(jsonMatch[0])
 }

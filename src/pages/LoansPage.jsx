@@ -423,45 +423,55 @@ function LoanCard({ loan, onEdit, isMortgage }) {
 
   const isFriend = loan.paidByFriend
 
+  const ownerGradient = isFriend ? null :
+    (loan.owner === 'tomer' || loan.owner === 'תומר') ? { background: 'linear-gradient(135deg, #312e81 0%, #4338ca 50%, #6366f1 100%)' } :
+    (loan.owner === 'yael' || loan.owner === 'יעל')   ? { background: 'linear-gradient(135deg, #9d174d 0%, #db2777 50%, #f472b6 100%)' } :
+                                                         null
+  const hasGradient = !!ownerGradient
+
   if (isFriend) return (
-    <div className="rounded-2xl overflow-hidden cursor-pointer border border-purple-100 border-r-4 border-r-purple-300 bg-purple-50" onClick={onEdit}>
+    <div
+      className={`rounded-2xl overflow-hidden cursor-pointer ${hasGradient ? 'shadow-sm' : 'border border-purple-100 border-r-4 border-r-purple-300 bg-purple-50'}`}
+      style={hasGradient ? ownerGradient : undefined}
+      onClick={onEdit}
+    >
       <div className="px-4 py-3 flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-xs text-slate-400">{loan.owner}</span>
-            <span className="text-xs bg-purple-100 text-purple-500 px-2 py-0.5 rounded-full">👤 {loan.friendName}</span>
+            <span className={`text-xs ${hasGradient ? 'text-white text-opacity-70' : 'text-slate-400'}`}>{loan.owner}</span>
+            <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white' : 'bg-purple-100 text-purple-500'}`}>👤 {loan.friendName}</span>
           </div>
-          <h3 className="font-semibold text-gray-800">{loan.name}</h3>
+          <h3 className={`font-semibold ${hasGradient ? 'text-white' : 'text-gray-800'}`}>{loan.name}</h3>
           <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-            {loan.chargeDay && <span className="text-xs bg-purple-100 text-purple-400 px-2 py-0.5 rounded-full">חיוב: {nextChargeDate(loan.chargeDay)}</span>}
-            {loan.interestRate > 0 && <span className="text-xs bg-purple-100 text-purple-400 px-2 py-0.5 rounded-full">{loan.interestRate}%</span>}
+            {loan.chargeDay && <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white text-opacity-80' : 'bg-purple-100 text-purple-400'}`}>חיוב: {nextChargeDate(loan.chargeDay)}</span>}
+            {loan.interestRate > 0 && <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white text-opacity-80' : 'bg-purple-100 text-purple-400'}`}>{loan.interestRate}%</span>}
           </div>
         </div>
         <div className="text-left mr-2 shrink-0">
-          <p className="font-bold text-purple-500">{formatILS(payment)}</p>
-          <p className="text-xs text-purple-300">לחודש</p>
+          <p className={`font-bold ${hasGradient ? 'text-white' : 'text-purple-500'}`}>{formatILS(payment)}</p>
+          <p className={`text-xs ${hasGradient ? 'text-white text-opacity-70' : 'text-purple-300'}`}>לחודש</p>
         </div>
       </div>
-      <div className="px-4 pb-3 border-t border-purple-100 pt-2">
+      <div className={`px-4 pb-3 pt-2 ${hasGradient ? 'border-t border-white border-opacity-20' : 'border-t border-purple-100'}`}>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-purple-300">{isOverride ? 'יתרה ידועה' : 'יתרה משוערת'}</p>
-            <p className="text-base font-bold text-purple-600">{formatILS(balance)}</p>
+            <p className={`text-xs ${hasGradient ? 'text-white text-opacity-70' : 'text-purple-300'}`}>{isOverride ? 'יתרה ידועה' : 'יתרה משוערת'}</p>
+            <p className={`text-base font-bold ${hasGradient ? 'text-white' : 'text-purple-600'}`}>{formatILS(balance)}</p>
           </div>
           {remaining !== null && (
             <div className="text-left">
-              <p className="text-xs text-purple-300">נותרו</p>
-              <p className="text-sm font-semibold text-purple-500">{remaining} חודשים</p>
-              {endDate && <p className="text-xs text-purple-300">{formatDate(endDate)}</p>}
+              <p className={`text-xs ${hasGradient ? 'text-white text-opacity-70' : 'text-purple-300'}`}>נותרו</p>
+              <p className={`text-sm font-semibold ${hasGradient ? 'text-white' : 'text-purple-500'}`}>{remaining} חודשים</p>
+              {endDate && <p className={`text-xs ${hasGradient ? 'text-white text-opacity-70' : 'text-purple-300'}`}>{formatDate(endDate)}</p>}
             </div>
           )}
         </div>
         {loan.startDate && loan.durationMonths && progress !== null && (
           <div className="mt-2">
-            <div className="bg-purple-100 rounded-full h-1.5">
-              <div className="bg-purple-300 h-1.5 rounded-full" style={{ width: `${progress}%` }} />
+            <div className={`rounded-full h-1.5 ${hasGradient ? 'bg-white bg-opacity-20' : 'bg-purple-100'}`}>
+              <div className={`h-1.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-60' : 'bg-purple-300'}`} style={{ width: `${progress}%` }} />
             </div>
-            <p className="text-xs text-purple-300 mt-1">{progress}% שולם מתוך {formatILS(loan.totalAmount)}</p>
+            <p className={`text-xs mt-1 ${hasGradient ? 'text-white text-opacity-70' : 'text-purple-300'}`}>{progress}% שולם מתוך {formatILS(loan.totalAmount)}</p>
           </div>
         )}
       </div>
@@ -469,67 +479,71 @@ function LoanCard({ loan, onEdit, isMortgage }) {
   )
 
   return (
-    <div className="bg-white border border-gray-100 shadow-sm rounded-2xl p-4 cursor-pointer" onClick={onEdit}>
+    <div
+      className={`rounded-2xl p-4 cursor-pointer ${hasGradient ? 'shadow-sm' : 'bg-white border border-gray-100 shadow-sm'}`}
+      style={hasGradient ? ownerGradient : undefined}
+      onClick={onEdit}
+    >
       <div className="flex items-start justify-between mb-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-xs text-gray-400">{loan.owner}</span>
+            <span className={`text-xs ${hasGradient ? 'text-white text-opacity-70' : 'text-gray-400'}`}>{loan.owner}</span>
           </div>
-          <h3 className="font-semibold text-gray-800">{loan.name}</h3>
+          <h3 className={`font-semibold ${hasGradient ? 'text-white' : 'text-gray-800'}`}>{loan.name}</h3>
           <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
             {loan.chargeDay && (
-              <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">חיוב: {nextChargeDate(loan.chargeDay)}</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white text-opacity-80' : 'bg-gray-100 text-gray-500'}`}>חיוב: {nextChargeDate(loan.chargeDay)}</span>
             )}
             {loan.interestRate > 0 && (
-              <span className="text-xs bg-blue-50 text-blue-500 px-2 py-0.5 rounded-full">{loan.interestRate}%</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white text-opacity-80' : 'bg-blue-50 text-blue-500'}`}>{loan.interestRate}%</span>
             )}
           </div>
         </div>
         <div className="text-left mr-2 shrink-0">
           {loan.currency === 'USD' ? (
-            <p className="font-bold text-red-500">${loan.monthlyPayment}/mo</p>
+            <p className={`font-bold ${hasGradient ? 'text-white' : 'text-red-500'}`}>${loan.monthlyPayment}/mo</p>
           ) : (
-            <p className="font-bold text-red-500">{formatILS(payment)}</p>
+            <p className={`font-bold ${hasGradient ? 'text-white' : 'text-red-500'}`}>{formatILS(payment)}</p>
           )}
-          <p className="text-xs text-gray-400 text-left">לחודש</p>
+          <p className={`text-xs text-left ${hasGradient ? 'text-white text-opacity-70' : 'text-gray-400'}`}>לחודש</p>
         </div>
       </div>
 
-      <div className="mt-2 pt-2 border-t border-gray-100">
+      <div className={`mt-2 pt-2 ${hasGradient ? 'border-t border-white border-opacity-20' : 'border-t border-gray-100'}`}>
         {hasMissing && !balance ? (
-          <div className="flex items-start gap-2 bg-orange-50 rounded-xl px-3 py-2">
+          <div className={`flex items-start gap-2 rounded-xl px-3 py-2 ${hasGradient ? 'bg-white bg-opacity-15' : 'bg-orange-50'}`}>
             <span className="text-sm">⚠️</span>
             <div>
-              <p className="text-xs font-medium text-orange-600">חסר מידע לחישוב יתרה</p>
-              <p className="text-xs text-orange-400">{missing.join(' · ')}</p>
+              <p className={`text-xs font-medium ${hasGradient ? 'text-white' : 'text-orange-600'}`}>חסר מידע לחישוב יתרה</p>
+              <p className={`text-xs ${hasGradient ? 'text-white text-opacity-70' : 'text-orange-400'}`}>{missing.join(' · ')}</p>
             </div>
           </div>
         ) : (
           <div className="flex items-center justify-between">
             <div>
               <div className="flex items-center gap-1.5">
-                <p className="text-xs text-gray-400">{isOverride ? 'יתרה ידועה' : 'יתרה משוערת'}</p>
-                {isOverride && <span className="text-[10px] bg-blue-100 text-blue-500 px-1.5 py-0.5 rounded-full">עדכני</span>}
+                <p className={`text-xs ${hasGradient ? 'text-white text-opacity-70' : 'text-gray-400'}`}>{isOverride ? 'יתרה ידועה' : 'יתרה משוערת'}</p>
+                {isOverride && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white' : 'bg-blue-100 text-blue-500'}`}>עדכני</span>}
               </div>
-              <p className="text-base font-bold text-gray-800">
+              <p className={`text-base font-bold ${hasGradient ? 'text-white' : 'text-gray-800'}`}>
                 {loan.currency === 'USD' ? `$${balance?.toFixed(2)}` : formatILS(balance)}
               </p>
             </div>
             {remaining !== null && (
               <div className="text-left">
-                <p className="text-xs text-gray-400">נותרו</p>
-                <p className="text-sm font-semibold text-gray-600">{remaining} חודשים</p>
-                {endDate && <p className="text-xs text-gray-400">{formatDate(endDate)}</p>}
+                <p className={`text-xs ${hasGradient ? 'text-white text-opacity-70' : 'text-gray-400'}`}>נותרו</p>
+                <p className={`text-sm font-semibold ${hasGradient ? 'text-white' : 'text-gray-600'}`}>{remaining} חודשים</p>
+                {endDate && <p className={`text-xs ${hasGradient ? 'text-white text-opacity-70' : 'text-gray-400'}`}>{formatDate(endDate)}</p>}
               </div>
             )}
           </div>
         )}
         {loan.startDate && loan.durationMonths && progress !== null && (
           <div className="mt-2">
-            <div className="bg-gray-100 rounded-full h-1.5">
-              <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${progress}%` }} />
+            <div className={`rounded-full h-1.5 ${hasGradient ? 'bg-white bg-opacity-20' : 'bg-gray-100'}`}>
+              <div className={`h-1.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-60' : 'bg-blue-500'}`} style={{ width: `${progress}%` }} />
             </div>
-            <p className="text-xs text-gray-400 mt-1">{progress}% שולם מתוך {formatILS(loan.totalAmount)}</p>
+            <p className={`text-xs mt-1 ${hasGradient ? 'text-white text-opacity-70' : 'text-gray-400'}`}>{progress}% שולם מתוך {formatILS(loan.totalAmount)}</p>
           </div>
         )}
       </div>

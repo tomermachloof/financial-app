@@ -53,7 +53,24 @@ export default function Dashboard() {
   const [permPrompt, setPermPrompt] = useState(null) // { type: 'account'|'amount', event, value, callback }
   const [undoStack, setUndoStack] = useState([]) // [{ action: 'confirm'|'dismiss', ...params }]
 
+  const [notifyHealth, setNotifyHealth] = useState(null) // null | 'ok' | 'missed'
+
   useEffect(() => { getPushStatus().then(setPushStatus) }, [])
+
+  // Check if today's notification was sent (only after 08:00 Israel time)
+  useEffect(() => {
+    const ilHour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', hour12: false }).format(new Date()))
+    if (ilHour < 8) return // too early, notification hasn't fired yet
+    const todayISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+    fetch('https://financial-notify.tomer-finance.workers.dev/status')
+      .then(r => r.json())
+      .then(log => {
+        if (!log || !log.date) return // no log yet — don't alarm
+        if (log.date === todayISO && log.sent > 0) setNotifyHealth('ok')
+        else if (log.date < todayISO) setNotifyHealth('missed')
+      })
+      .catch(() => {}) // network error — don't show false alarm
+  }, [])
 
   const handleUndo = () => {
     if (undoStack.length === 0) return
@@ -337,9 +354,12 @@ export default function Dashboard() {
               <button
                 onClick={handleTogglePush}
                 title={pushStatus === 'subscribed' ? 'בטל התראות' : 'הפעל התראות לטלפון'}
-                className="focus:outline-none active:scale-90 transition-transform"
+                className="relative focus:outline-none active:scale-90 transition-transform"
               >
                 <span className="text-2xl">{pushStatus === 'subscribed' ? '📲' : '🔕'}</span>
+                {notifyHealth === 'missed' && (
+                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white" title="התראת הבוקר לא נשלחה" />
+                )}
               </button>
             )}
             <button onClick={() => setShowAlert(v => !v)} className="relative focus:outline-none active:scale-90 transition-transform">

@@ -196,6 +196,13 @@ Promise.race([loadState(), timeout]).then(cloudState => {
       mergeById('debts')
       mergeById('investments')
 
+      // סינון סופי — הלוואות דיסקונט שנמחקו לא יחזרו אף פעם (גם לא מ-merge)
+      const DEAD_LOAN_IDS = ['l10', 'l11', 'l13']
+      const DEAD_LOAN_NAMES = ['דיסקונט תומר', 'דיסקונט יעל']
+      patched.loans = (patched.loans || []).filter(l =>
+        !DEAD_LOAN_IDS.includes(l.id) && !DEAD_LOAN_NAMES.includes(l.name)
+      )
+
       useStore.setState(patched)
     } else {
       // המקומי חדש יותר או שווה — שומרים על המקומי, לא מחליפים
