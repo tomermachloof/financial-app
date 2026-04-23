@@ -1475,7 +1475,7 @@ export default function IncomePage() {
                           <TimePicker
                             value={newSess.shootStart}
                             onChange={v => setNewSess(s => ({ ...s, shootStart: v }))}
-                            defaultHint="08:00"
+                            defaultHint="10:00"
                             label="תחילת צילומים"
                             onPicked={() => setTimeout(() => setAutoOpenEnd(true), 150)}
                           />

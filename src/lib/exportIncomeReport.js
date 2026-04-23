@@ -5,25 +5,37 @@
 
 import { formatDate } from '../utils/formatters'
 
+// חישוב משך מדויק בין שני זמנים HH:MM → "X שעות ו-Y דקות" או "X שעות"
+const exactDuration = (start, end) => {
+  if (!start || !end) return null
+  const [sh, sm] = start.split(':').map(Number)
+  const [eh, em] = end.split(':').map(Number)
+  let mins = (eh * 60 + em) - (sh * 60 + sm)
+  if (mins < 0) mins += 24 * 60
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  if (m === 0) return `${h} שעות`
+  return `${h} שעות ו-${m} דקות`
+}
+
 // פירוט טקסטואלי פשוט (לשימוש ברשימה רגילה)
 const describeSession = (ws) => {
   if (!ws) return '—'
-  // שעות — תמיד מוצגות אם קיימות, גם ב-manualMode
   const timeParts = []
-  if (ws.shootStart && ws.shootEnd) timeParts.push(`${ws.shootStart}–${ws.shootEnd}`)
-  else if (ws.dubbingStart && ws.dubbingEnd) timeParts.push(`${ws.dubbingStart}–${ws.dubbingEnd}`)
+  if (ws.shootStart && ws.shootEnd) {
+    timeParts.push(`${ws.shootStart}–${ws.shootEnd}`)
+    timeParts.push(exactDuration(ws.shootStart, ws.shootEnd))
+  } else if (ws.dubbingStart && ws.dubbingEnd) {
+    timeParts.push(`${ws.dubbingStart}–${ws.dubbingEnd}`)
+    timeParts.push(exactDuration(ws.dubbingStart, ws.dubbingEnd))
+  }
   if (ws.pickupTime) timeParts.push(`איסוף ${ws.pickupTime}`)
   if (ws.returnTime) timeParts.push(`חזור ${ws.returnTime}`)
-  if (ws.manualMode) {
-    timeParts.push('סכום ידני')
-    return timeParts.join(' · ') || 'סכום ידני'
-  }
+  if (ws.manualMode) return timeParts.join(' · ') || '—'
   if (ws.type === 'יום צילום') {
-    if (ws.workHours != null) timeParts.push(`${ws.workHours} שעות`)
     if (ws.travelHours) timeParts.push(`כולל נסיעות ${ws.travelHours}`)
     return timeParts.join(' · ') || '—'
   }
-  if (ws.hours != null && ws.hours !== '') timeParts.push(`${ws.hours} שעות`)
   if (ws.quantity && ws.ratePerUnit) timeParts.push(`${ws.quantity} × ₪${ws.ratePerUnit}`)
   return timeParts.join(' · ') || '—'
 }
@@ -31,16 +43,19 @@ const describeSession = (ws) => {
 // פירוט עם צבעים לדוח סוכנות — מציג 4 שעות, צובע את אלה שמשמשות לחישוב
 const describeSessionHtml = (ws) => {
   if (!ws) return '—'
-  // אם manualMode — עדיין מציגים שעות אם קיימות, ואז "סכום ידני"
+  // manualMode — מציגים שעות אם קיימות, בלי כיתוב "סכום ידני"
   if (ws.manualMode) {
     const parts = []
-    if (ws.shootStart && ws.shootEnd) parts.push(`${ws.shootStart}–${ws.shootEnd}`)
-    else if (ws.dubbingStart && ws.dubbingEnd) parts.push(`${ws.dubbingStart}–${ws.dubbingEnd}`)
+    if (ws.shootStart && ws.shootEnd) {
+      parts.push(`${ws.shootStart}–${ws.shootEnd}`)
+      parts.push(exactDuration(ws.shootStart, ws.shootEnd))
+    } else if (ws.dubbingStart && ws.dubbingEnd) {
+      parts.push(`${ws.dubbingStart}–${ws.dubbingEnd}`)
+      parts.push(exactDuration(ws.dubbingStart, ws.dubbingEnd))
+    }
     if (ws.pickupTime) parts.push(`איסוף ${ws.pickupTime}`)
     if (ws.returnTime) parts.push(`חזור ${ws.returnTime}`)
-    if (ws.hours != null && ws.hours !== '') parts.push(`${ws.hours} שעות`)
-    parts.push('סכום ידני')
-    return parts.join('<br>')
+    return parts.length > 0 ? parts.join('<br>') : '—'
   }
   if (ws.type === 'יום צילום') {
     const useTravel = !!ws.useTravelForCalc
@@ -58,27 +73,33 @@ const describeSessionHtml = (ws) => {
     lines.push(`<span style="color:${shootColor};font-weight:${!useTravel ? '700' : '400'}">סיום צילום: ${ws.shootEnd || '—'}</span>`)
     lines.push(`<span style="color:${returnColor};font-weight:${useTravel ? '700' : '400'}">חזור: ${ws.returnTime || '—'}</span>`)
 
-    // שורת סיכום שעות
-    const hours = useTravel ? ws.travelHours : ws.workHours
-    if (hours != null) {
-      lines.push(`<span style="color:${calcColor};font-weight:700;font-size:11px;">${hours} שעות ${useTravel ? '(כולל נסיעות)' : '(צילום)'}</span>`)
+    // שורת סיכום שעות — מדויק מהזמנים
+    if (useTravel && ws.pickupTime && ws.returnTime) {
+      const dur = exactDuration(ws.pickupTime, ws.returnTime)
+      if (dur) lines.push(`<span style="color:${calcColor};font-weight:700;font-size:11px;">${dur} (כולל נסיעות)</span>`)
+    } else if (!useTravel && ws.shootStart && ws.shootEnd) {
+      const dur = exactDuration(ws.shootStart, ws.shootEnd)
+      if (dur) lines.push(`<span style="color:${calcColor};font-weight:700;font-size:11px;">${dur} (צילום)</span>`)
     }
 
     return lines.join('<br>')
   }
   if (ws.type === 'חזרות' || ws.type === 'מדידות' || ws.type === 'חזרה מסחרי' || ws.type === 'מדידות מסחרי') {
     const parts = []
-    if (ws.shootStart && ws.shootEnd) parts.push(`${ws.shootStart}–${ws.shootEnd}`)
-    if (ws.hours != null && ws.hours !== '') parts.push(`${ws.hours} שעות`)
-    if (ws.manualMode) parts.push('סכום ידני')
-    return parts.length > 0 ? parts.join('<br>') : `${ws.hours || 0} שעות`
+    if (ws.shootStart && ws.shootEnd) {
+      parts.push(`${ws.shootStart}–${ws.shootEnd}`)
+      parts.push(exactDuration(ws.shootStart, ws.shootEnd))
+    }
+    return parts.length > 0 ? parts.join('<br>') : '—'
   }
   // Theater types
   if (ws.type === 'הצגה' || ws.type === 'חזרה אחרי עלייה' || ws.type === 'צילומי טריילר' || ws.type === 'צילומי הצגה') {
     const parts = []
     if (ws.theaterLocation) parts.push(`📍 ${ws.theaterLocation}`)
-    if (ws.shootStart && ws.shootEnd) parts.push(`${ws.shootStart}–${ws.shootEnd}`)
-    if (ws.manualMode) parts.push('סכום ידני')
+    if (ws.shootStart && ws.shootEnd) {
+      parts.push(`${ws.shootStart}–${ws.shootEnd}`)
+      parts.push(exactDuration(ws.shootStart, ws.shootEnd))
+    }
     return parts.length > 0 ? parts.join('<br>') : ws.type
   }
   if (ws.type === 'חזרות חודשיות') return ws.theaterMonth || 'חודש'
@@ -91,13 +112,12 @@ const describeSessionHtml = (ws) => {
   // Dubbing
   if (ws.dubbingStart && ws.dubbingEnd) {
     const parts = [`${ws.dubbingStart}–${ws.dubbingEnd}`]
-    if (ws.dubbingHours) parts.push(`${ws.dubbingHours} שעות`)
+    parts.push(exactDuration(ws.dubbingStart, ws.dubbingEnd))
     return parts.join('<br>')
   }
   if (ws.quantity && ws.ratePerUnit) {
     return `${ws.quantity} × ₪${ws.ratePerUnit}`
   }
-  if (ws.manualMode) return 'סכום ידני'
   return '—'
 }
 
