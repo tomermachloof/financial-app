@@ -62,7 +62,7 @@ export default function Modal({ title, onClose, onSave, children, headerStyle })
       onTouchStart={handleBackdropPointerDown}
       onTouchEnd={handleBackdropPointerUp}
     >
-      <div className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl overflow-hidden outline-none border-2 border-blue-400" style={{ animation: 'modalPopIn 0.35s cubic-bezier(.22,1,.36,1)', marginTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }} onKeyDown={handleKeyDown}>
+      <div className="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl overflow-hidden mt-20 outline-none border-2 border-blue-400" style={{ animation: 'modalPopIn 0.35s cubic-bezier(.22,1,.36,1)' }} onKeyDown={handleKeyDown}>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-100 rounded-t-2xl" style={headerStyle || {}}>
           <h2 className={`text-lg font-bold ${headerStyle ? 'text-white' : 'text-gray-800'}`}>{title}</h2>
