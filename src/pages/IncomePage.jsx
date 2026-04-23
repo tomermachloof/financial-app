@@ -200,39 +200,70 @@ const unitLabel = t => t === 'יום צילום' ? 'ימים' : 'שעות'
 // Handles both new-shape sessions (workHours / hours) and legacy (quantity × rate).
 const formatSessionDetail = (ws) => {
   if (!ws) return '—'
-  if (ws.manualMode) return 'סכום ידני'
+
+  // בניית תיאור שעות — משותף לכל הסוגים
+  const timeParts = []
+  if (ws.shootStart && ws.shootEnd) timeParts.push(`${ws.shootStart}–${ws.shootEnd}`)
+  if (ws.pickupTime) timeParts.push(`איסוף ${ws.pickupTime}`)
+  if (ws.returnTime) timeParts.push(`חזרה ${ws.returnTime}`)
+  const timeStr = timeParts.length > 0 ? timeParts.join(' · ') : ''
+
   if (ws.type === 'יום צילום') {
+    const parts = []
+    if (timeStr) parts.push(timeStr)
     if (ws.workHours != null && ws.workHours !== '') {
       if (ws.useTravelForCalc && ws.travelHours) {
-        return `${ws.travelHours} שעות (לפי דלת לדלת) · צילום ${ws.workHours}`
+        parts.push(`${ws.travelHours} שעות (דלת לדלת) · צילום ${ws.workHours}`)
+      } else {
+        const travel = (ws.travelHours != null && ws.travelHours > 0) ? ` · כולל נסיעות ${ws.travelHours}` : ''
+        parts.push(`${ws.workHours} שעות${travel}`)
       }
-      const travel = (ws.travelHours != null && ws.travelHours > 0) ? ` · כולל נסיעות ${ws.travelHours}` : ''
-      return `${ws.workHours} שעות${travel}`
     }
-    if (ws.quantity != null && ws.ratePerUnit != null) {
-      return `${ws.quantity} ${unitLabel(ws.type)} × ${formatILS(ws.ratePerUnit)}`
-    }
-    return '—'
+    if (ws.manualMode) parts.push('סכום ידני')
+    return parts.length > 0 ? parts.join(' · ') : '—'
   }
   if (ws.type === 'חזרות' || ws.type === 'מדידות') {
-    if (ws.hours != null && ws.hours !== '') return `${ws.hours} שעות`
-    if (ws.quantity != null && ws.ratePerUnit != null) {
-      return `${ws.quantity} ${unitLabel(ws.type)} × ${formatILS(ws.ratePerUnit)}`
-    }
-    return '—'
+    const parts = []
+    if (timeStr) parts.push(timeStr)
+    if (ws.hours != null && ws.hours !== '') parts.push(`${ws.hours} שעות`)
+    if (ws.manualMode) parts.push('סכום ידני')
+    return parts.length > 0 ? parts.join(' · ') : '—'
   }
   // Theater types
-  if (ws.type === 'הצגה') return ws.theaterLocation ? `📍 ${ws.theaterLocation}` : 'הצגה'
+  if (ws.type === 'הצגה') {
+    const parts = []
+    if (ws.theaterLocation) parts.push(`📍 ${ws.theaterLocation}`)
+    if (timeStr) parts.push(timeStr)
+    if (ws.manualMode) parts.push('סכום ידני')
+    return parts.length > 0 ? parts.join(' · ') : 'הצגה'
+  }
   if (ws.type === 'חזרות חודשיות') return ws.theaterMonth || 'חודש'
-  if (ws.type === 'חזרה אחרי עלייה') return 'חזרה'
-  if (ws.type === 'צילומי טריילר') return 'צילומי טריילר'
-  if (ws.type === 'צילומי הצגה') return 'צילומי הצגה'
+  if (ws.type === 'חזרה אחרי עלייה' || ws.type === 'צילומי טריילר' || ws.type === 'צילומי הצגה') {
+    const parts = []
+    if (timeStr) parts.push(timeStr)
+    if (ws.manualMode) parts.push('סכום ידני')
+    return parts.length > 0 ? parts.join(' · ') : ws.type
+  }
   // Commercial types
-  if (COMMERCIAL_TYPE_LABELS[ws.type]) return ws.commercialNote || COMMERCIAL_TYPE_LABELS[ws.type]
+  if (COMMERCIAL_TYPE_LABELS[ws.type]) {
+    const parts = []
+    if (timeStr) parts.push(timeStr)
+    if (ws.commercialNote) parts.push(ws.commercialNote)
+    if (ws.manualMode) parts.push('סכום ידני')
+    return parts.length > 0 ? parts.join(' · ') : COMMERCIAL_TYPE_LABELS[ws.type]
+  }
+  // Dubbing
+  if (ws.dubbingStart && ws.dubbingEnd) {
+    const parts = [`${ws.dubbingStart}–${ws.dubbingEnd}`]
+    if (ws.dubbingHours) parts.push(`${ws.dubbingHours} שעות`)
+    if (ws.manualMode) parts.push('סכום ידני')
+    return parts.join(' · ')
+  }
   // Other / legacy
   if (ws.quantity != null && ws.ratePerUnit != null) {
     return `${ws.quantity} ${unitLabel(ws.type)} × ${formatILS(ws.ratePerUnit)}`
   }
+  if (ws.manualMode) return 'סכום ידני'
   return '—'
 }
 
@@ -434,7 +465,8 @@ export default function IncomePage() {
       commercialPlatform: item.commercialPlatform ?? '',
       commercialShootDaysContract: item.commercialShootDaysContract ?? '',
     })
-    setNewSess(EMPTY_NEW_SESS)
+    const editDefaultType = (item.projectType || 'film') === 'commercial' ? 'צילום' : (item.projectType || 'film') === 'theater' ? 'הצגה' : (item.projectType || 'film') === 'dubbing' ? 'הקלטה' : 'יום צילום'
+    setNewSess({ ...EMPTY_NEW_SESS, type: editDefaultType })
     setModal({ item })
   }
 
@@ -490,6 +522,8 @@ export default function IncomePage() {
         id,
         type: t,
         date: newSess.date || null,
+        shootStart: newSess.shootStart || null,
+        shootEnd: newSess.shootEnd || null,
         commercialNote: newSess.commercialNote || null,
         amount: 0,
       }
@@ -504,7 +538,8 @@ export default function IncomePage() {
       const tiers = form.overtimeTiers || DEFAULT_OT_TIERS
       const calc = computePhotoDayAmount(hoursForCalc, rate, tiers)
       const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : calc.total
-      if (finalAmt <= 0) return null
+      if (finalAmt < 0) return null
+      if (finalAmt === 0 && !newSess.manualMode) return null
       return {
         id,
         type: t,
@@ -529,15 +564,21 @@ export default function IncomePage() {
       }
     }
     if (t === 'חזרות' || t === 'מדידות') {
-      const h = Number(newSess.hours) || 0
+      const autoH = (newSess.shootStart && newSess.shootEnd)
+        ? roundUpQuarter(timeDiffHours(newSess.shootStart, newSess.shootEnd))
+        : 0
+      const h = newSess.hours !== '' ? Number(newSess.hours) : autoH
       const rate = Number(form.photoDayRate) || 0
       const calc = computeRehearsalAmount(h, rate, form.rehearsalPct12, form.rehearsalPct3plus)
       const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : calc.total
-      if (finalAmt <= 0) return null
+      if (finalAmt < 0) return null
+      if (finalAmt === 0 && !newSess.manualMode) return null
       return {
         id,
         type: t,
         date: newSess.date || null,
+        shootStart: newSess.shootStart || null,
+        shootEnd: newSess.shootEnd || null,
         hours: roundUpQuarter(h),
         photoDayRateUsed: rate,
         pct12Used:     Number(form.rehearsalPct12) || 15,
@@ -550,7 +591,7 @@ export default function IncomePage() {
     // ── Theater: חזרות חודשיות — סכום ידני תמיד (מול סכום כולל חזרות) ──
     if (t === 'חזרות חודשיות') {
       const finalAmt = Number(newSess.manualAmount) || 0
-      if (finalAmt <= 0) return null
+      if (newSess.manualAmount === '' || newSess.manualAmount === undefined) return null
       return {
         id,
         type: t,
@@ -569,11 +610,14 @@ export default function IncomePage() {
     if (theaterTypes[t]) {
       const price = Number(form[theaterTypes[t]]) || 0
       const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : price
-      if (finalAmt <= 0) return null
+      if (finalAmt < 0) return null
+      if (finalAmt === 0 && !newSess.manualMode) return null
       return {
         id,
         type: t,
         date: newSess.date || null,
+        shootStart: newSess.shootStart || null,
+        shootEnd: newSess.shootEnd || null,
         theaterLocation: newSess.theaterLocation || null,
         theaterMonth: newSess.theaterMonth || null,
         manualMode: !!newSess.manualMode,
@@ -593,7 +637,8 @@ export default function IncomePage() {
       const songB = Number(form.dubbingSongBonus) || 0
       const computed = computeDubbingAmount(h, firstHR, halfHR, hasSong, songB)
       const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : computed
-      if (finalAmt <= 0) return null
+      if (finalAmt < 0) return null
+      if (finalAmt === 0 && !newSess.manualMode) return null
       return {
         id,
         type: t,
@@ -618,6 +663,8 @@ export default function IncomePage() {
       id,
       type: t,
       date: newSess.date || null,
+      shootStart: newSess.shootStart || null,
+      shootEnd: newSess.shootEnd || null,
       quantity: qty,
       ratePerUnit: rate,
       amount: qty * rate,
@@ -1319,7 +1366,7 @@ export default function IncomePage() {
                         )}
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        {ws.amount > 0 && <span className="text-sm font-bold text-green-600 ml-1">{formatILS(ws.amount)}</span>}
+                        {ws.amount != null && <span className={`text-sm font-bold ml-1 ${ws.amount > 0 ? 'text-green-600' : 'text-gray-400'}`}>{formatILS(ws.amount)}</span>}
                         <button
                           type="button"
                           onClick={() => startEditSess(ws)}
@@ -1418,7 +1465,7 @@ export default function IncomePage() {
                   ? computePhotoDayAmount(useTravel ? shootH : travelH, rate, tiers)
                   : null
                 const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : calc.total
-                const canAdd = finalAmt > 0
+                const canAdd = newSess.manualMode ? newSess.manualAmount !== '' : finalAmt > 0
                 return (
                   <>
                     <div className="bg-white rounded-lg p-2 space-y-2">
@@ -1559,15 +1606,42 @@ export default function IncomePage() {
               {/* ═══ Rehearsal / fitting ═══ */}
               {(newSess.type === 'חזרות' || newSess.type === 'מדידות') && (() => {
                 const rate = Number(form.photoDayRate) || 0
-                const h = Number(newSess.hours) || 0
+                const autoH = (newSess.shootStart && newSess.shootEnd)
+                  ? roundUpQuarter(timeDiffHours(newSess.shootStart, newSess.shootEnd))
+                  : 0
+                const h = newSess.hours !== '' ? Number(newSess.hours) : autoH
                 const calc = computeRehearsalAmount(h, rate, form.rehearsalPct12, form.rehearsalPct3plus)
                 const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : calc.total
-                const canAdd = finalAmt > 0
+                const canAdd = newSess.manualMode ? newSess.manualAmount !== '' : finalAmt > 0
                 return (
                   <>
-                    <Field label="מספר שעות (עשרוני — לדוגמה 2.5)">
-                      <Input type="number" value={newSess.hours} onChange={v => setNewSess(s => ({ ...s, hours: v }))} placeholder="0" step="0.25" />
-                    </Field>
+                    <div className="bg-white rounded-lg p-2 space-y-2">
+                      <p className="text-xs text-gray-500 font-medium">שעות חזרה (לחישוב)</p>
+                      <div className="grid grid-cols-2 gap-2" dir="rtl">
+                        <Field label="תחילת חזרה">
+                          <TimePicker
+                            value={newSess.shootStart}
+                            onChange={v => setNewSess(s => ({ ...s, shootStart: v }))}
+                            defaultHint="10:00"
+                            label="תחילת חזרה"
+                            onPicked={() => setTimeout(() => setAutoOpenEnd(true), 150)}
+                          />
+                        </Field>
+                        <Field label="סיום חזרה">
+                          <TimePicker
+                            value={newSess.shootEnd}
+                            onChange={v => setNewSess(s => ({ ...s, shootEnd: v }))}
+                            defaultHint={offsetTime(newSess.shootStart, 3) || '13:00'}
+                            label="סיום חזרה"
+                            triggerOpen={autoOpenEnd}
+                            onOpenHandled={() => setAutoOpenEnd(false)}
+                          />
+                        </Field>
+                      </div>
+                      <Field label="שעות לחישוב (עשרוני — לעקיפת זמנים)" hint="השאר ריק כדי לחשב אוטומטית מזמני החזרה">
+                        <Input type="number" value={newSess.hours} onChange={v => setNewSess(s => ({ ...s, hours: v }))} placeholder={`${autoH || 0}`} step="0.25" />
+                      </Field>
+                    </div>
 
                     {rate === 0 ? (
                       <div className="bg-yellow-50 rounded-lg px-3 py-2 text-xs text-yellow-700">
@@ -1654,7 +1728,7 @@ export default function IncomePage() {
                         )}
                       </div>
                     )}
-                    <button onClick={addSessToForm} disabled={amt <= 0} className="w-full bg-purple-700 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
+                    <button onClick={addSessToForm} disabled={newSess.manualAmount === '' || newSess.manualAmount === undefined} className="w-full bg-purple-700 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
                       {editingSessId ? 'עדכן רישום · ' : '+ הוסף רישום · '}{formatILS(amt)}
                     </button>
                     {editingSessId && (
@@ -1676,7 +1750,7 @@ export default function IncomePage() {
                 }
                 const price = Number(priceMap[newSess.type]) || 0
                 const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : price
-                const canAdd = finalAmt > 0
+                const canAdd = newSess.manualMode ? newSess.manualAmount !== '' : finalAmt > 0
                 return (
                   <>
                     {newSess.type === 'הצגה' && (
@@ -1684,6 +1758,33 @@ export default function IncomePage() {
                         <Input value={newSess.theaterLocation} onChange={v => setNewSess(s => ({ ...s, theaterLocation: v }))} placeholder="שם התיאטרון / עיר" />
                       </Field>
                     )}
+
+                    <div className="bg-white rounded-lg p-2 space-y-2">
+                      <p className="text-xs text-gray-500 font-medium">
+                        {newSess.type === 'הצגה' ? 'שעות הצגה' : 'שעות'}
+                      </p>
+                      <div className="grid grid-cols-2 gap-2" dir="rtl">
+                        <Field label="תחילה">
+                          <TimePicker
+                            value={newSess.shootStart}
+                            onChange={v => setNewSess(s => ({ ...s, shootStart: v }))}
+                            defaultHint={newSess.type === 'הצגה' ? '20:00' : '10:00'}
+                            label="תחילה"
+                            onPicked={() => setTimeout(() => setAutoOpenEnd(true), 150)}
+                          />
+                        </Field>
+                        <Field label="סיום">
+                          <TimePicker
+                            value={newSess.shootEnd}
+                            onChange={v => setNewSess(s => ({ ...s, shootEnd: v }))}
+                            defaultHint={offsetTime(newSess.shootStart, newSess.type === 'הצגה' ? 2 : 3) || (newSess.type === 'הצגה' ? '22:00' : '13:00')}
+                            label="סיום"
+                            triggerOpen={autoOpenEnd}
+                            onOpenHandled={() => setAutoOpenEnd(false)}
+                          />
+                        </Field>
+                      </div>
+                    </div>
 
                     {price > 0 ? (
                       <div className="bg-white rounded-lg px-3 py-2 text-xs">
@@ -1728,8 +1829,35 @@ export default function IncomePage() {
               {form.projectType === 'commercial' && newSess.type !== 'אחר' && (() => {
                 const shootDaysUsed = (form.sessions || []).filter(s => s.type === 'צילום').length
                 const contractDays = Number(form.commercialShootDaysContract) || 0
+                const isCommRehearsal = ['חזרה מסחרי', 'מדידות מסחרי'].includes(newSess.type)
                 return (
                   <>
+                    {isCommRehearsal && (
+                      <div className="bg-white rounded-lg p-2 space-y-2">
+                        <p className="text-xs text-gray-500 font-medium">שעות {newSess.type === 'חזרה מסחרי' ? 'חזרה' : 'מדידות'}</p>
+                        <div className="grid grid-cols-2 gap-2" dir="rtl">
+                          <Field label="תחילה">
+                            <TimePicker
+                              value={newSess.shootStart}
+                              onChange={v => setNewSess(s => ({ ...s, shootStart: v }))}
+                              defaultHint="10:00"
+                              label="תחילה"
+                              onPicked={() => setTimeout(() => setAutoOpenEnd(true), 150)}
+                            />
+                          </Field>
+                          <Field label="סיום">
+                            <TimePicker
+                              value={newSess.shootEnd}
+                              onChange={v => setNewSess(s => ({ ...s, shootEnd: v }))}
+                              defaultHint={offsetTime(newSess.shootStart, 3) || '13:00'}
+                              label="סיום"
+                              triggerOpen={autoOpenEnd}
+                              onOpenHandled={() => setAutoOpenEnd(false)}
+                            />
+                          </Field>
+                        </div>
+                      </div>
+                    )}
                     <Field label="תיאור / הערה">
                       <Input value={newSess.commercialNote} onChange={v => setNewSess(s => ({ ...s, commercialNote: v }))} placeholder="למשל: צילום בסטודיו, פגישת הפקה..." />
                     </Field>

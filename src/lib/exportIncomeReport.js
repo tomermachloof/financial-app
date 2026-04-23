@@ -8,29 +8,40 @@ import { formatDate } from '../utils/formatters'
 // פירוט טקסטואלי פשוט (לשימוש ברשימה רגילה)
 const describeSession = (ws) => {
   if (!ws) return '—'
-  if (ws.manualMode) return 'סכום ידני'
+  // שעות — תמיד מוצגות אם קיימות, גם ב-manualMode
+  const timeParts = []
+  if (ws.shootStart && ws.shootEnd) timeParts.push(`${ws.shootStart}–${ws.shootEnd}`)
+  else if (ws.dubbingStart && ws.dubbingEnd) timeParts.push(`${ws.dubbingStart}–${ws.dubbingEnd}`)
+  if (ws.pickupTime) timeParts.push(`איסוף ${ws.pickupTime}`)
+  if (ws.returnTime) timeParts.push(`חזור ${ws.returnTime}`)
+  if (ws.manualMode) {
+    timeParts.push('סכום ידני')
+    return timeParts.join(' · ') || 'סכום ידני'
+  }
   if (ws.type === 'יום צילום') {
-    const parts = []
-    if (ws.shootStart && ws.shootEnd) parts.push(`צילום ${ws.shootStart}–${ws.shootEnd}`)
-    if (ws.pickupTime) parts.push(`איסוף ${ws.pickupTime}`)
-    if (ws.returnTime) parts.push(`חזור ${ws.returnTime}`)
-    if (ws.workHours != null) parts.push(`${ws.workHours} שעות`)
-    if (ws.travelHours) parts.push(`כולל נסיעות ${ws.travelHours}`)
-    return parts.join(' · ') || '—'
+    if (ws.workHours != null) timeParts.push(`${ws.workHours} שעות`)
+    if (ws.travelHours) timeParts.push(`כולל נסיעות ${ws.travelHours}`)
+    return timeParts.join(' · ') || '—'
   }
-  if (ws.type === 'חזרות' || ws.type === 'מדידות') {
-    return `${ws.hours || 0} שעות`
-  }
-  if (ws.quantity && ws.ratePerUnit) {
-    return `${ws.quantity} × ₪${ws.ratePerUnit}`
-  }
-  return '—'
+  if (ws.hours != null && ws.hours !== '') timeParts.push(`${ws.hours} שעות`)
+  if (ws.quantity && ws.ratePerUnit) timeParts.push(`${ws.quantity} × ₪${ws.ratePerUnit}`)
+  return timeParts.join(' · ') || '—'
 }
 
 // פירוט עם צבעים לדוח סוכנות — מציג 4 שעות, צובע את אלה שמשמשות לחישוב
 const describeSessionHtml = (ws) => {
   if (!ws) return '—'
-  if (ws.manualMode) return 'סכום ידני'
+  // אם manualMode — עדיין מציגים שעות אם קיימות, ואז "סכום ידני"
+  if (ws.manualMode) {
+    const parts = []
+    if (ws.shootStart && ws.shootEnd) parts.push(`${ws.shootStart}–${ws.shootEnd}`)
+    else if (ws.dubbingStart && ws.dubbingEnd) parts.push(`${ws.dubbingStart}–${ws.dubbingEnd}`)
+    if (ws.pickupTime) parts.push(`איסוף ${ws.pickupTime}`)
+    if (ws.returnTime) parts.push(`חזור ${ws.returnTime}`)
+    if (ws.hours != null && ws.hours !== '') parts.push(`${ws.hours} שעות`)
+    parts.push('סכום ידני')
+    return parts.join('<br>')
+  }
   if (ws.type === 'יום צילום') {
     const useTravel = !!ws.useTravelForCalc
     // צבע: ירוק = חישוב מהסט, כתום = חישוב מהבית (כולל נסיעות)
@@ -55,12 +66,38 @@ const describeSessionHtml = (ws) => {
 
     return lines.join('<br>')
   }
-  if (ws.type === 'חזרות' || ws.type === 'מדידות') {
-    return `${ws.hours || 0} שעות`
+  if (ws.type === 'חזרות' || ws.type === 'מדידות' || ws.type === 'חזרה מסחרי' || ws.type === 'מדידות מסחרי') {
+    const parts = []
+    if (ws.shootStart && ws.shootEnd) parts.push(`${ws.shootStart}–${ws.shootEnd}`)
+    if (ws.hours != null && ws.hours !== '') parts.push(`${ws.hours} שעות`)
+    if (ws.manualMode) parts.push('סכום ידני')
+    return parts.length > 0 ? parts.join('<br>') : `${ws.hours || 0} שעות`
+  }
+  // Theater types
+  if (ws.type === 'הצגה' || ws.type === 'חזרה אחרי עלייה' || ws.type === 'צילומי טריילר' || ws.type === 'צילומי הצגה') {
+    const parts = []
+    if (ws.theaterLocation) parts.push(`📍 ${ws.theaterLocation}`)
+    if (ws.shootStart && ws.shootEnd) parts.push(`${ws.shootStart}–${ws.shootEnd}`)
+    if (ws.manualMode) parts.push('סכום ידני')
+    return parts.length > 0 ? parts.join('<br>') : ws.type
+  }
+  if (ws.type === 'חזרות חודשיות') return ws.theaterMonth || 'חודש'
+  // Commercial / other with times
+  if (ws.shootStart && ws.shootEnd) {
+    const parts = [`${ws.shootStart}–${ws.shootEnd}`]
+    if (ws.commercialNote) parts.push(ws.commercialNote)
+    return parts.join('<br>')
+  }
+  // Dubbing
+  if (ws.dubbingStart && ws.dubbingEnd) {
+    const parts = [`${ws.dubbingStart}–${ws.dubbingEnd}`]
+    if (ws.dubbingHours) parts.push(`${ws.dubbingHours} שעות`)
+    return parts.join('<br>')
   }
   if (ws.quantity && ws.ratePerUnit) {
     return `${ws.quantity} × ₪${ws.ratePerUnit}`
   }
+  if (ws.manualMode) return 'סכום ידני'
   return '—'
 }
 
