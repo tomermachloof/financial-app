@@ -123,9 +123,9 @@ export default function AccountsPage() {
     else updateDebt(modal.id, data)
     setModal(null)
   }
-  const removeDebt = () => { deleteDebt(modal.id); setModal(null) }
-  const removeAccount = () => { deleteAccount(modal.id); setModal(null) }
-  const removeInv = () => { deleteInvestment(modal.id); setModal(null) }
+  const removeDebt = () => { if (window.confirm('למחוק את החוב?')) { deleteDebt(modal.id); setModal(null) } }
+  const removeAccount = () => { if (window.confirm('למחוק את החשבון?')) { deleteAccount(modal.id); setModal(null) } }
+  const removeInv = () => { if (window.confirm('למחוק את ההשקעה?')) { deleteInvestment(modal.id); setModal(null) } }
 
   const owedToUs = debts.filter(d => d.type === 'owed_to_us')
   const weOwe    = debts.filter(d => d.type === 'we_owe')
@@ -291,10 +291,20 @@ export default function AccountsPage() {
 
       {/* ── Modals ── */}
       {modal?.type === 'account' && (
-        <Modal title={modal.mode === 'add' ? 'חשבון חדש' : 'עריכת חשבון'} onClose={() => setModal(null)} onSave={saveAccount}>
+        <Modal
+          title={modal.mode === 'add' ? 'חשבון חדש' : (
+            <div>
+              <div className="text-base font-extrabold leading-tight">{form.name || 'חשבון'}</div>
+              <div className="text-[11px] font-medium opacity-80">{form.owner === 'תומר' ? 'תומר מכלוף' : form.owner === 'יעל' ? 'יעל אלקנה' : form.owner === 'משותף' ? 'משותף' : ''}</div>
+            </div>
+          )}
+          headerStyle={modal.mode !== 'add' ? { background: form.owner === 'תומר' ? 'linear-gradient(135deg, #4338ca, #6366f1)' : form.owner === 'יעל' ? 'linear-gradient(135deg, #db2777, #ec4899)' : undefined } : undefined}
+          onClose={() => setModal(null)}
+          onSave={saveAccount}
+        >
           <Field label="שם"><Input value={form.name} onChange={v => setF('name', v)} placeholder="שם החשבון" /></Field>
           <Field label="בנק"><Select value={form.bank} onChange={v => setF('bank', v)} options={BANK_OPTIONS} /></Field>
-          <Field label="בעלים"><Select value={form.owner} onChange={v => setF('owner', v)} options={OWNER_OPTIONS} /></Field>
+          {modal.mode === 'add' && <Field label="בעלים"><Select value={form.owner} onChange={v => setF('owner', v)} options={OWNER_OPTIONS} /></Field>}
           {form.currency === 'USD' ? (
             <Field label="יתרה ($)">
               <Input type="number" value={form.usdBalance ?? ''} onChange={v => setF('usdBalance', v)} placeholder="0" />
@@ -310,10 +320,20 @@ export default function AccountsPage() {
       )}
 
       {modal?.type === 'inv' && (
-        <Modal title={modal.mode === 'add' ? 'נכס חדש' : 'עריכת נכס'} onClose={() => setModal(null)} onSave={saveInv}>
+        <Modal
+          title={modal.mode === 'add' ? 'נכס חדש' : (
+            <div>
+              <div className="text-base font-extrabold leading-tight">{form.name || 'נכס'}</div>
+              <div className="text-[11px] font-medium opacity-80">{form.owner === 'תומר' ? 'תומר מכלוף' : form.owner === 'יעל' ? 'יעל אלקנה' : form.owner === 'משותף' ? 'משותף' : ''}</div>
+            </div>
+          )}
+          headerStyle={modal.mode !== 'add' ? { background: form.owner === 'תומר' ? 'linear-gradient(135deg, #4338ca, #6366f1)' : form.owner === 'יעל' ? 'linear-gradient(135deg, #db2777, #ec4899)' : undefined } : undefined}
+          onClose={() => setModal(null)}
+          onSave={saveInv}
+        >
           <Field label="שם"><Input value={form.name} onChange={v => setF('name', v)} placeholder="שם הנכס" /></Field>
           <Field label="סוג"><Select value={form.type} onChange={v => setF('type', v)} options={INV_TYPE_OPTIONS} /></Field>
-          <Field label="בעלים"><Select value={form.owner} onChange={v => setF('owner', v)} options={OWNER_OPTIONS} /></Field>
+          {modal.mode === 'add' && <Field label="בעלים"><Select value={form.owner} onChange={v => setF('owner', v)} options={OWNER_OPTIONS} /></Field>}
           <Field label="שווי (₪)">
             <Input type="number" value={form.value} onChange={v => setF('value', v)} placeholder="0" />
           </Field>

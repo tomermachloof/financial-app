@@ -152,12 +152,13 @@ export default function LoansPage() {
 
   const remove = () => {
     const loan = modal.loan
+    if (!window.confirm('למחוק את ההלוואה?')) return
     // If the loan was originally created with a credit to an account, offer to reverse it
     let reverseCredit = false
     if (loan && loan.creditAccountId && loan.totalAmount) {
       const acc = accounts.find(a => a.id === loan.creditAccountId)
       const accName = acc?.name || 'חשבון'
-      reverseCredit = window.confirm(`למחוק את ההלוואה ולהחזיר את הזיכוי המקורי מ-${accName} (${loan.totalAmount.toLocaleString('he')})?\n\nאישור = גם להחזיר את הזיכוי\nביטול = רק למחוק את ההלוואה`)
+      reverseCredit = window.confirm(`להחזיר את הזיכוי המקורי מ-${accName} (${loan.totalAmount.toLocaleString('he')})?\n\nאישור = גם להחזיר את הזיכוי\nביטול = רק למחוק`)
     }
     deleteLoan(loan.id, { reverseCredit })
     closeModal()
@@ -246,7 +247,17 @@ export default function LoansPage() {
 
       {/* Modal */}
       {modal && (
-        <Modal title={modal === 'add' ? 'הלוואה חדשה' : 'עריכת הלוואה'} onClose={closeModal} onSave={save}>
+        <Modal
+          title={modal === 'add' ? 'הלוואה חדשה' : (
+            <div>
+              <div className="text-base font-extrabold leading-tight">{form.name || 'הלוואה'}</div>
+              <div className="text-[11px] font-medium opacity-80">{form.owner === 'תומר' || form.owner === 'tomer' ? 'תומר מכלוף' : form.owner === 'יעל' || form.owner === 'yael' ? 'יעל אלקנה' : form.owner === 'משותף' ? 'משותף' : ''}</div>
+            </div>
+          )}
+          headerStyle={modal !== 'add' ? { background: (form.owner === 'תומר' || form.owner === 'tomer') ? 'linear-gradient(135deg, #4338ca, #6366f1)' : (form.owner === 'יעל' || form.owner === 'yael') ? 'linear-gradient(135deg, #db2777, #ec4899)' : undefined } : undefined}
+          onClose={closeModal}
+          onSave={save}
+        >
           {/* Drop zone for document upload */}
           <div
             className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors mb-3 ${dragOver ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-gray-50'}`}
@@ -266,7 +277,7 @@ export default function LoansPage() {
           </div>
 
           <Field label="שם"><Input value={form.name} onChange={v => set('name', v)} placeholder="שם ההלוואה" /></Field>
-          <Field label="בעלים"><Select value={form.owner} onChange={v => set('owner', v)} options={OWNER_OPTIONS} /></Field>
+          {modal === 'add' && <Field label="בעלים"><Select value={form.owner} onChange={v => set('owner', v)} options={OWNER_OPTIONS} /></Field>}
           <Field label="סוג"><Select value={form.type} onChange={v => set('type', v)} options={TYPE_OPTIONS} /></Field>
 
           <div className="grid grid-cols-2 gap-3">

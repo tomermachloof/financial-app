@@ -778,7 +778,7 @@ export default function IncomePage() {
     }
     closeModal()
   }
-  const remove       = () => { deleteFutureIncome(modal.item.id); closeModal() }
+  const remove       = () => { if (!window.confirm('למחוק את ההכנסה?')) return; deleteFutureIncome(modal.item.id); closeModal() }
   const openReceive  = (item, e) => { e.stopPropagation(); setReceiveAccId(item.accountId || ''); setReceiveModal({ item }) }
   const confirmReceive = () => {
     markIncomeReceived(receiveModal.item.id, receiveAccId || null)
@@ -936,28 +936,40 @@ export default function IncomePage() {
 
       {/* ── Edit / Add modal ── */}
       {modal && (
-        <Modal title={modal === 'add' ? 'הכנסה חדשה' : 'עריכת הכנסה'} onClose={closeModal} onSave={save}>
-          <Field label="שם"><Input value={form.name} onChange={v => set('name', v)} placeholder="שם ההכנסה" /></Field>
-          {/* ── בעלים של הפרויקט ── */}
-          <div className="space-y-1">
-            <p className="text-xs font-semibold text-gray-500">בעלים של הפרויקט</p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => set('owner', 'tomer')}
-                className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors ${form.owner === 'tomer' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400'}`}
-              >
-                תומר
-              </button>
-              <button
-                type="button"
-                onClick={() => set('owner', 'yael')}
-                className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors ${form.owner === 'yael' ? 'bg-pink-500 text-white' : 'bg-gray-100 text-gray-400'}`}
-              >
-                יעל
-              </button>
+        <Modal
+          title={modal === 'add' ? 'הכנסה חדשה' : (
+            <div>
+              <div className="text-base font-extrabold leading-tight">{form.name || 'פרויקט'}</div>
+              <div className="text-[11px] font-medium opacity-80">{form.owner === 'tomer' ? 'תומר מכלוף' : form.owner === 'yael' ? 'יעל אלקנה' : ''}</div>
             </div>
-          </div>
+          )}
+          headerStyle={modal !== 'add' ? { background: form.owner === 'tomer' ? 'linear-gradient(135deg, #4338ca, #6366f1)' : form.owner === 'yael' ? 'linear-gradient(135deg, #db2777, #ec4899)' : undefined } : undefined}
+          onClose={closeModal}
+          onSave={save}
+        >
+          <Field label="שם"><Input value={form.name} onChange={v => set('name', v)} placeholder="שם ההכנסה" /></Field>
+          {/* ── בעלים של הפרויקט — רק בהקמה ── */}
+          {modal === 'add' && (
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-gray-500">בעלים של הפרויקט</p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => set('owner', 'tomer')}
+                  className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors ${form.owner === 'tomer' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400'}`}
+                >
+                  תומר
+                </button>
+                <button
+                  type="button"
+                  onClick={() => set('owner', 'yael')}
+                  className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors ${form.owner === 'yael' ? 'bg-pink-500 text-white' : 'bg-gray-100 text-gray-400'}`}
+                >
+                  יעל
+                </button>
+              </div>
+            </div>
+          )}
           {/* ── סוג פרויקט (תצוגה בלבד) ── */}
           <div className={`text-center text-xs font-bold px-3 py-1.5 rounded-full mb-2 ${form.projectType === 'commercial' ? 'bg-orange-100 text-orange-700' : form.projectType === 'theater' ? 'bg-purple-100 text-purple-700' : form.projectType === 'dubbing' ? 'bg-pink-200 text-pink-800' : 'bg-blue-100 text-blue-700'}`}>
             {form.projectType === 'commercial' ? '💼 מסחרי / קמפיין' : form.projectType === 'theater' ? '🎭 תיאטרון' : form.projectType === 'dubbing' ? '🎙️ דיבוב' : '🎬 קולנוע / טלוויזיה'}
@@ -1148,6 +1160,7 @@ export default function IncomePage() {
                         alert('הפריט כבר אושר בלוח הבית. בטל אישור לפני מחיקת תשלום חלקי.')
                         return
                       }
+                      if (!window.confirm('למחוק את התשלום?')) return
                       removeIncomePayment(liveItem.id, paymentId)
                     }
                     return (
@@ -2150,7 +2163,7 @@ export default function IncomePage() {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold text-green-600">{formatILS(ws.amount)}</span>
                     <button
-                      onClick={() => deleteWorkSession(workItem.id, ws.id)}
+                      onClick={() => { if (window.confirm('למחוק את הרישום?')) deleteWorkSession(workItem.id, ws.id) }}
                       className="text-red-400 text-xs px-1.5 py-0.5 hover:bg-red-50 rounded"
                     >
                       ✕

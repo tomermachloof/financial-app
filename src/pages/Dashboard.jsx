@@ -11,7 +11,7 @@ import {
   calcMonthlyOut, calcMonthlyIn, getUpcomingEvents, calcRemainingBalance,
 } from '../utils/calculations'
 import { formatILS, formatDateShort, daysUntil } from '../utils/formatters'
-import { getPushStatus, subscribeToPush, unsubscribeFromPush } from '../lib/pushNotifications'
+import { getPushStatus, subscribeToPush, unsubscribeFromPush, autoRefreshSubscription } from '../lib/pushNotifications'
 
 const colorMap = {
   red:    { bg: 'bg-red-50',    text: 'text-red-600',    dot: 'bg-red-400'    },
@@ -55,7 +55,12 @@ export default function Dashboard() {
 
   const [notifyHealth, setNotifyHealth] = useState(null) // null | 'ok' | 'missed'
 
-  useEffect(() => { getPushStatus().then(setPushStatus) }, [])
+  useEffect(() => {
+    getPushStatus().then(s => {
+      setPushStatus(s)
+      if (s === 'subscribed') autoRefreshSubscription()
+    })
+  }, [])
 
   // Check if today's notification was sent (only after 08:00 Israel time)
   useEffect(() => {
@@ -350,10 +355,16 @@ export default function Dashboard() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            {pushStatus !== 'loading' && pushStatus !== 'unsupported' && (
+            {pushStatus !== 'loading' && (
               <button
-                onClick={handleTogglePush}
-                title={pushStatus === 'subscribed' ? 'בטל התראות' : 'הפעל התראות לטלפון'}
+                onClick={() => {
+                  if (pushStatus === 'unsupported') {
+                    alert('כדי לקבל התראות באייפון, הוסף את האפליקציה למסך הבית:\nלחץ על כפתור השיתוף ← "הוסף למסך הבית"')
+                  } else {
+                    handleTogglePush()
+                  }
+                }}
+                title={pushStatus === 'subscribed' ? 'בטל התראות' : pushStatus === 'unsupported' ? 'התראות לא נתמכות — הוסף למסך הבית' : 'הפעל התראות'}
                 className="relative focus:outline-none active:scale-90 transition-transform"
               >
                 <span className="text-2xl">{pushStatus === 'subscribed' ? '📲' : '🔕'}</span>
@@ -618,7 +629,7 @@ export default function Dashboard() {
                       }}
                       className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded-lg font-medium"
                     >✓</button>
-                    <button onClick={() => deleteReminder(r.id)} className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium">מחק</button>
+                    <button onClick={() => { if (window.confirm('למחוק את התזכורת?')) deleteReminder(r.id) }} className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium">מחק</button>
                   </div>
                 </div>
               </div>
@@ -1221,7 +1232,7 @@ export default function Dashboard() {
                         className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-lg font-medium"
                       >ערוך</button>
                       <button
-                        onClick={e => { e.stopPropagation(); deleteReminder(r.id) }}
+                        onClick={e => { e.stopPropagation(); if (window.confirm('למחוק את התזכורת?')) deleteReminder(r.id) }}
                         className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium"
                       >מחק</button>
                     </div>
@@ -1279,7 +1290,7 @@ export default function Dashboard() {
                         <div className="flex gap-1">
                           <button onClick={() => { setEditTarget({ type: 'expense', item, action: 'income_expense', form: { freq: 'monthly', kind: 'expense', name: item.name, amount: String(item.currency === 'USD' ? (item.usdAmount||'') : (item.amount||'')), chargeDay: item.chargeDay, accountId: item.accountId||'', destAccountId: item.destAccountId||'' } }) }}
                             className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-lg font-medium">ערוך</button>
-                          <button onClick={() => deleteExpense(item.id)}
+                          <button onClick={() => { if (window.confirm('למחוק את ההוצאה?')) deleteExpense(item.id) }}
                             className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium">מחק</button>
                         </div>
                       </div>
@@ -1298,7 +1309,7 @@ export default function Dashboard() {
                         <div className="flex gap-1">
                           <button onClick={() => { setEditTarget({ type: 'rental', item, action: 'income_expense', form: { freq: 'monthly', kind: 'income', name: item.name, amount: String(item.usdAmount||item.amount||''), chargeDay: item.chargeDay, accountId: item.accountId||'' } }) }}
                             className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-lg font-medium">ערוך</button>
-                          <button onClick={() => deleteRentalIncome(item.id)}
+                          <button onClick={() => { if (window.confirm('למחוק את ההכנסה?')) deleteRentalIncome(item.id) }}
                             className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium">מחק</button>
                         </div>
                       </div>
@@ -1332,7 +1343,7 @@ export default function Dashboard() {
                         <div className="flex gap-1">
                           <button onClick={() => { item.sessions?.length > 0 ? setIncomeEditItem(item) : setEditTarget(editT) }}
                             className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-lg font-medium">ערוך</button>
-                          <button onClick={() => deleteFutureIncome(item.id)}
+                          <button onClick={() => { if (window.confirm('למחוק?')) deleteFutureIncome(item.id) }}
                             className="text-xs bg-red-50 text-red-400 px-2 py-1 rounded-lg font-medium">מחק</button>
                         </div>
                       </div>

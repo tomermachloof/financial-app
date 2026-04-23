@@ -109,3 +109,34 @@ export async function getPushStatus() {
     return 'unsubscribed'
   }
 }
+
+// רענון אוטומטי — קורא בכל טעינת אפליקציה.
+// אם יש הרשאה ו-PushManager זמין, מרענן את הסאבסקריפשן בשקט
+// כדי שלא יפוג תוקף (במיוחד ב-iOS Safari).
+export async function autoRefreshSubscription() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+  if (Notification.permission !== 'granted') return
+  try {
+    const reg = await navigator.serviceWorker.ready
+    const existing = await reg.pushManager.getSubscription()
+    if (!existing) return // לא רשום — לא מרעננים אוטומטית
+
+    // ביטול והרשמה מחדש כדי לקבל endpoint חדש
+    await existing.unsubscribe()
+    const subscription = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+    })
+
+    const subJson = subscription.toJSON()
+    const key     = endpointKey(subJson)
+    const list    = await readSubscriptions()
+    const next    = list.filter(s => endpointKey(s) !== key)
+    next.push(subJson)
+    await writeSubscriptions(next)
+
+    console.log('[Push] auto-refreshed subscription')
+  } catch (err) {
+    console.warn('[Push] auto-refresh failed:', err.message)
+  }
+}

@@ -157,7 +157,7 @@ export default function PartialPaymentModal({ item: initialItem, onClose }) {
             <select
               value={accountId}
               onChange={e => { setAccountId(e.target.value); setError(null) }}
-              className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 ${!accountId && error ? 'border-red-400' : 'border-gray-200'}`}
+              className={`w-full border-2 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500 bg-gray-50 ${!accountId && error ? 'border-red-400' : 'border-gray-200'}`}
             >
               <option value="">בחר חשבון</option>
               {filteredAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}

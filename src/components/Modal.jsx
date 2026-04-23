@@ -20,7 +20,7 @@ if (typeof document !== 'undefined' && !document.getElementById('modal-anim')) {
   document.head.appendChild(s)
 }
 
-export default function Modal({ title, onClose, onSave, children }) {
+export default function Modal({ title, onClose, onSave, children, headerStyle }) {
   // Track whether a drag-select started inside the modal body.
   // If it did, we must NOT close even if the user releases on the backdrop.
   const pressStartedOnBackdropRef = useRef(false)
@@ -62,13 +62,13 @@ export default function Modal({ title, onClose, onSave, children }) {
       onTouchStart={handleBackdropPointerDown}
       onTouchEnd={handleBackdropPointerUp}
     >
-      <div className="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl overflow-hidden mt-20 outline-none border-2 border-blue-400" style={{ animation: 'modalPopIn 0.35s cubic-bezier(.22,1,.36,1)' }} onKeyDown={handleKeyDown}>
+      <div className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl overflow-hidden outline-none border-2 border-blue-400" style={{ animation: 'modalPopIn 0.35s cubic-bezier(.22,1,.36,1)', marginTop: 'calc(48px + env(safe-area-inset-top, 0px))' }} onKeyDown={handleKeyDown}>
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-800">{title}</h2>
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 rounded-t-2xl" style={headerStyle || {}}>
+          <h2 className={`text-lg font-bold ${headerStyle ? 'text-white' : 'text-gray-800'}`}>{title}</h2>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200"
+            className={`w-8 h-8 flex items-center justify-center rounded-full ${headerStyle ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
           >
             ✕
           </button>

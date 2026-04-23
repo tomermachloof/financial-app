@@ -421,8 +421,39 @@ async function sendDailyNotification(env) {
   }
   await upsertSupabase(env, 'notification_log', logEntry)
 
-  if (sent === 0 && dead === 0 && errors.length > 0) {
-    throw new Error('All push sends failed: ' + errors.join(' | '))
+  // ── 9. Fallback: send email if no push succeeded ──────────
+  if (sent === 0 && env.RESEND_API_KEY) {
+    console.log('No push succeeded — sending email fallback')
+    await sendEmailFallback(env, title, body)
+  }
+}
+
+// ── email fallback via Resend ─────────────────────────────────
+
+async function sendEmailFallback(env, title, body) {
+  try {
+    const htmlBody = body.split('\n').map(line => line ? `<p style="margin:4px 0">${line}</p>` : '<br>').join('')
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: 'onboarding@resend.dev',
+        to: 'tomermachluf@gmail.com',
+        subject: title,
+        html: `<div dir="rtl" style="font-family:sans-serif;font-size:16px">${htmlBody}</div>`,
+      }),
+    })
+    if (res.ok) {
+      console.log('Email fallback sent successfully')
+    } else {
+      const text = await res.text()
+      console.error('Email fallback failed:', res.status, text)
+    }
+  } catch (err) {
+    console.error('Email fallback error:', err.message)
   }
 }
 
