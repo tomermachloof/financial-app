@@ -29,6 +29,11 @@ jobs:
 
       - name: Build (production)
         run: npx vite build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.PROD_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.PROD_SUPABASE_KEY }}
+          VITE_ANALYZE_URL: ${{ secrets.VITE_ANALYZE_URL }}
+          VITE_GOOGLE_MAPS_KEY: ${{ secrets.VITE_GOOGLE_MAPS_KEY }}
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4
