@@ -669,7 +669,7 @@ const useStore = create(
           })(),
           friendReminders: state.friendReminders || [],
           loans: (() => {
-            const base = (state.loans || []).filter(l => l.id !== 'l13' && l.id !== 'l10' && l.id !== 'l11' && l.id !== 'l19' && l.id !== 'l20').map(l => {
+            const base = (state.loans || []).filter(l => l.id !== 'l13' && l.id !== 'l10' && l.id !== 'l11' && l.name !== 'דיסקונט תומר' && l.name !== 'דיסקונט יעל').map(l => {
               if (l.id === 'l4')  return { ...l, totalAmount: 75000, monthlyPayment: 809, startDate: '2021-11-07' }
               if (l.id === 'l12') return { ...l, totalAmount: 40000, monthlyPayment: 666, chargeDay: 10, durationMonths: 60, interestRate: 0, startDate: '2024-02-28' }
               if (l.id === 'l3')  return { ...l, totalAmount: 100000, monthlyPayment: 1920, interestRate: 6.0, interestType: 'fixed', startDate: '2021-11-18' }
@@ -721,7 +721,7 @@ export function patchCloudState(state) {
 
   // הסרת הלוואות דיסקונט כפולות שחוזרות מהענן
   if (s.loans) {
-    s.loans = s.loans.filter(l => l.id !== 'l13' && l.id !== 'l10' && l.id !== 'l11' && l.id !== 'l19' && l.id !== 'l20')
+    s.loans = s.loans.filter(l => l.id !== 'l13' && l.id !== 'l10' && l.id !== 'l11' && l.name !== 'דיסקונט תומר' && l.name !== 'דיסקונט יעל')
   }
 
   if (!s.reminders) s.reminders = []
