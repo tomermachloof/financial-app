@@ -427,15 +427,25 @@ const useStore = create(
           if (id && String(id).startsWith('l')) {
             const loan = s.loans.find(l => l.id === id)
             if (loan) {
-              // סכום התשלום: או מה-delta, או מהתשלום החודשי של ההלוואה
-              const paymentAmt = Math.abs(delta) || loan.monthlyPayment || 0
-              const currentBalance = loan.balanceOverride != null
-                ? loan.balanceOverride
-                : (loan.totalAmount || 0) - ((loan.paidCount || 0) * (loan.monthlyPayment || 0))
+              let newBalance
+              if (loan.paymentSchedule?.length) {
+                const entry = loan.paymentSchedule.find(p => p.date === date)
+                newBalance = entry != null ? entry.remainingBalance : (() => {
+                  const paymentAmt = Math.abs(delta) || loan.monthlyPayment || 0
+                  const currentBalance = loan.balanceOverride != null ? loan.balanceOverride : (loan.totalAmount || 0)
+                  return Math.max(0, Math.round(currentBalance - paymentAmt))
+                })()
+              } else {
+                const paymentAmt = Math.abs(delta) || loan.monthlyPayment || 0
+                const currentBalance = loan.balanceOverride != null
+                  ? loan.balanceOverride
+                  : (loan.totalAmount || 0) - ((loan.paidCount || 0) * (loan.monthlyPayment || 0))
+                newBalance = Math.max(0, Math.round(currentBalance - paymentAmt))
+              }
               loans = s.loans.map(l => l.id !== id ? l : {
                 ...l,
                 paidCount: (l.paidCount || 0) + 1,
-                balanceOverride: Math.max(0, Math.round(currentBalance - paymentAmt)),
+                balanceOverride: newBalance,
                 _updatedAt: Date.now(),
               })
             }
@@ -471,12 +481,20 @@ const useStore = create(
           if (ev.id && String(ev.id).startsWith('l')) {
             const loan = s.loans.find(l => l.id === ev.id)
             if (loan) {
-              const paymentAmt = Math.abs(ev.delta) || loan.monthlyPayment || 0
-              const currentBalance = loan.balanceOverride != null ? loan.balanceOverride : 0
+              let newBalance
+              if (loan.paymentSchedule?.length) {
+                const idx = loan.paymentSchedule.findIndex(p => p.date === ev.date)
+                const prevEntry = idx > 0 ? loan.paymentSchedule[idx - 1] : null
+                newBalance = prevEntry != null ? prevEntry.remainingBalance : (loan.totalAmount || 0)
+              } else {
+                const paymentAmt = Math.abs(ev.delta) || loan.monthlyPayment || 0
+                const currentBalance = loan.balanceOverride != null ? loan.balanceOverride : 0
+                newBalance = currentBalance + paymentAmt
+              }
               loans = s.loans.map(l => l.id !== ev.id ? l : {
                 ...l,
                 paidCount: Math.max(0, (l.paidCount || 0) - 1),
-                balanceOverride: currentBalance + paymentAmt,
+                balanceOverride: newBalance,
                 _updatedAt: Date.now(),
               })
             }
