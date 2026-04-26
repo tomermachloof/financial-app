@@ -293,6 +293,8 @@ const COMMERCIAL_SESSION_TYPES = [
 const DUBBING_SESSION_TYPES = [
   { value: 'הקלטה',  label: '🎙️ הקלטה' },
   { value: 'השלמה',  label: '🔄 השלמה' },
+  { value: 'טריילר', label: '🎬 טריילר' },
+  { value: 'סרט',    label: '🎥 סרט' },
   { value: 'אחר',    label: 'אחר' },
 ]
 const DUBBING_RATE_PRESETS = {
@@ -653,6 +655,28 @@ export default function IncomePage() {
         dubbingFirstHourRateUsed: firstHR,
         dubbingHalfHourRateUsed: halfHR,
         dubbingSongBonusUsed: songB,
+        manualMode: !!newSess.manualMode,
+        manualAmount: newSess.manualMode ? (Number(newSess.manualAmount) || 0) : null,
+        amount: finalAmt,
+      }
+    }
+    // טריילר — ₪200 קבוע
+    if (form.projectType === 'dubbing' && t === 'טריילר') {
+      return { id, type: t, date: newSess.date || null, amount: 200 }
+    }
+    // סרט — שעות × ₪166
+    if (form.projectType === 'dubbing' && t === 'סרט') {
+      const autoH = (newSess.dubbingStart && newSess.dubbingEnd)
+        ? roundUpQuarter(timeDiffHours(newSess.dubbingStart, newSess.dubbingEnd))
+        : 0
+      const h = newSess.dubbingHours !== '' ? Number(newSess.dubbingHours) : autoH
+      const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : Math.round(h * 166)
+      if (finalAmt <= 0 && !newSess.manualMode) return null
+      return {
+        id, type: t, date: newSess.date || null,
+        dubbingStart: newSess.dubbingStart || null,
+        dubbingEnd: newSess.dubbingEnd || null,
+        dubbingHours: h,
         manualMode: !!newSess.manualMode,
         manualAmount: newSess.manualMode ? (Number(newSess.manualAmount) || 0) : null,
         amount: finalAmt,
@@ -1900,8 +1924,8 @@ export default function IncomePage() {
                 )
               })()}
 
-              {/* ═══ Dubbing types ═══ */}
-              {form.projectType === 'dubbing' && newSess.type !== 'אחר' && (() => {
+              {/* ═══ Dubbing: הקלטה / השלמה ═══ */}
+              {form.projectType === 'dubbing' && (newSess.type === 'הקלטה' || newSess.type === 'השלמה') && (() => {
                 // Auto-calc hours from start/end times
                 const autoH = (newSess.dubbingStart && newSess.dubbingEnd)
                   ? roundUpQuarter(timeDiffHours(newSess.dubbingStart, newSess.dubbingEnd))
@@ -1974,6 +1998,99 @@ export default function IncomePage() {
                     )}
 
                     <button onClick={addSessToForm} disabled={h <= 0} className="w-full bg-pink-600 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
+                      {editingSessId ? 'עדכן רישום' : '+ הוסף רישום'}
+                    </button>
+                    {editingSessId && (
+                      <button onClick={cancelEditSess} className="w-full bg-gray-100 text-gray-600 text-xs font-semibold py-1.5 rounded-xl mt-1">
+                        ביטול עריכה
+                      </button>
+                    )}
+                  </>
+                )
+              })()}
+
+              {/* ═══ Dubbing: טריילר ═══ */}
+              {form.projectType === 'dubbing' && newSess.type === 'טריילר' && (
+                <>
+                  <div className="bg-pink-100 rounded-xl p-3">
+                    <div className="flex justify-between text-sm">
+                      <span className="font-semibold text-gray-700">סה״כ</span>
+                      <span className="font-bold text-pink-700">₪200</span>
+                    </div>
+                  </div>
+                  <button onClick={addSessToForm} className="w-full bg-pink-600 text-white text-sm font-semibold py-2 rounded-xl">
+                    {editingSessId ? 'עדכן רישום' : '+ הוסף רישום'}
+                  </button>
+                  {editingSessId && (
+                    <button onClick={cancelEditSess} className="w-full bg-gray-100 text-gray-600 text-xs font-semibold py-1.5 rounded-xl mt-1">
+                      ביטול עריכה
+                    </button>
+                  )}
+                </>
+              )}
+
+              {/* ═══ Dubbing: סרט ═══ */}
+              {form.projectType === 'dubbing' && newSess.type === 'סרט' && (() => {
+                const autoH = (newSess.dubbingStart && newSess.dubbingEnd)
+                  ? roundUpQuarter(timeDiffHours(newSess.dubbingStart, newSess.dubbingEnd))
+                  : 0
+                const h = newSess.dubbingHours !== '' ? Number(newSess.dubbingHours) : autoH
+                const computed = Math.round(h * 166)
+                const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : computed
+                const canAdd = newSess.manualMode ? finalAmt > 0 : h > 0
+                return (
+                  <>
+                    <div className="bg-white rounded-lg p-2 space-y-2">
+                      <p className="text-xs text-gray-500 font-medium">שעות הקלטה</p>
+                      <div className="grid grid-cols-2 gap-2" dir="rtl">
+                        <Field label="תחילת הקלטה">
+                          <TimePicker
+                            value={newSess.dubbingStart}
+                            onChange={v => setNewSess(s => ({ ...s, dubbingStart: v, dubbingHours: '' }))}
+                            defaultHint="10:00"
+                            label="תחילת הקלטה"
+                            onPicked={() => setTimeout(() => setAutoOpenDubbingEnd(true), 150)}
+                          />
+                        </Field>
+                        <Field label="סיום הקלטה">
+                          <TimePicker
+                            value={newSess.dubbingEnd}
+                            onChange={v => setNewSess(s => ({ ...s, dubbingEnd: v, dubbingHours: '' }))}
+                            defaultHint={offsetTime(newSess.dubbingStart, 2) || '12:00'}
+                            label="סיום הקלטה"
+                            triggerOpen={autoOpenDubbingEnd}
+                            onOpenHandled={() => setAutoOpenDubbingEnd(false)}
+                          />
+                        </Field>
+                      </div>
+                      <Field label="שעות לחישוב (עשרוני)" hint="השאר ריק כדי לחשב אוטומטית מהזמנים">
+                        <Input type="number" step="0.25" value={newSess.dubbingHours} onChange={v => setNewSess(s => ({ ...s, dubbingHours: v }))} placeholder={autoH > 0 ? String(autoH) : '0'} />
+                      </Field>
+                    </div>
+                    {!newSess.manualMode && h > 0 && (
+                      <div className="bg-pink-100 rounded-xl p-3 space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-500">{h} שעות × ₪166</span>
+                          <span className="font-bold text-pink-700">{formatILS(computed)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm border-t border-pink-300 pt-1 mt-1">
+                          <span className="font-semibold text-gray-700">סה״כ</span>
+                          <span className="font-bold text-pink-700">{formatILS(computed)}</span>
+                        </div>
+                      </div>
+                    )}
+                    <label className="flex items-center gap-2 px-1 cursor-pointer">
+                      <input type="checkbox" checked={!!newSess.manualMode}
+                        onChange={e => setNewSess(s => ({ ...s, manualMode: e.target.checked }))}
+                        className="w-4 h-4 rounded border-gray-300 text-pink-600 focus:ring-pink-500" />
+                      <span className="text-xs font-medium text-gray-600">סכום ידני (עוקף את החישוב)</span>
+                    </label>
+                    {newSess.manualMode && (
+                      <Field label="סכום ידני (₪)">
+                        <Input type="number" value={newSess.manualAmount} onChange={v => setNewSess(s => ({ ...s, manualAmount: v }))} placeholder="0" />
+                      </Field>
+                    )}
+                    <button onClick={addSessToForm} disabled={!canAdd} className="w-full bg-pink-600 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
                       {editingSessId ? 'עדכן רישום' : '+ הוסף רישום'}
                     </button>
                     {editingSessId && (
