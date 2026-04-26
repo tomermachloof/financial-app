@@ -518,12 +518,15 @@ export default function IncomePage() {
 
     // ── Commercial types — documentation only, no amount calc ──
     if (form.projectType === 'commercial' && t !== 'אחר') {
+      // אל תיצור רישום ריק — רק אם יש תאריך או הערה או שמדובר בעריכה קיימת
+      if (!editingId && !newSess.date && !newSess.commercialNote) return null
       return {
         id,
         type: t,
         date: newSess.date || null,
         shootStart: newSess.shootStart || null,
         shootEnd: newSess.shootEnd || null,
+        setLocation: newSess.setLocation || null,
         commercialNote: newSess.commercialNote || null,
         amount: 0,
       }
@@ -1871,7 +1874,10 @@ export default function IncomePage() {
                         </div>
                       </div>
                     )}
-                    <Field label="תיאור / הערה">
+                    <Field label="מיקום">
+                      <Input value={newSess.setLocation || ''} onChange={v => setNewSess(s => ({ ...s, setLocation: v }))} placeholder="למשל: תל אביב, סטודיו, ירושלים..." />
+                    </Field>
+                    <Field label="פירוט">
                       <Input value={newSess.commercialNote} onChange={v => setNewSess(s => ({ ...s, commercialNote: v }))} placeholder="למשל: צילום בסטודיו, פגישת הפקה..." />
                     </Field>
 

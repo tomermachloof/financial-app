@@ -357,8 +357,9 @@ export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, d
       let loanEndDate = null
       if (!isIncome && isLoan && item.startDate) {
         if (item.paymentSchedule?.length) {
-          // הלוואה עם לוח סילוקין — לא מגבילים עם startDate/endDate
-          // התשלומים מוגדרים בלוח, ההלוואה תופיע תמיד
+          loanStartDate = new Date(item.paymentSchedule[0].date)
+          const lastEntry = item.paymentSchedule[item.paymentSchedule.length - 1]
+          loanEndDate = new Date(lastEntry.date)
         } else {
           const start = new Date(item.startDate)
           const firstPay = new Date(start.getFullYear(), start.getMonth() + 1, chargeDay)

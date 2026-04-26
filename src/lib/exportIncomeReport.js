@@ -159,7 +159,11 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
     })
 
   // סך הכל גולמי — ללא עמלה ומע״מ
-  const total = sessions.reduce((s, ws) => s + (ws.amount || 0), 0)
+  // בפרויקט מסחרי הרישומים הם תיעוד בלבד (amount=0) — הסכום נמצא ב-item.amount
+  const isCommercial = item.projectType === 'commercial'
+  const total = isCommercial
+    ? (item.amount || 0)
+    : sessions.reduce((s, ws) => s + (ws.amount || 0), 0)
 
   // חישוב יתרה עדכנית — כבר התקבל ויתרה לתשלום
   // amount בתשלום החלקי הוא בבסיס (לפני עמלה ומע״מ), זה מה שמקזז את הפרויקט.
@@ -174,17 +178,22 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
   const rowsHtml = sessions.length > 0
     ? sessions.map((ws, i) => {
         const locClass = ws.setIsAboveThreshold ? 'location from-home' : 'location from-set'
-        const locText = ws.setLocation
-          ? `${escapeHtml(ws.setLocation)}${ws.setDistanceKm != null ? ` (${ws.setDistanceKm} ק״מ)` : ''}<br><span style="font-size:10px;">${ws.setIsAboveThreshold ? '🚗 מהבית' : '📍 מהסט'}</span>`
-          : '—'
+        const locText = isCommercial
+          ? escapeHtml(ws.setLocation || '—')
+          : (ws.setLocation
+            ? `${escapeHtml(ws.setLocation)}${ws.setDistanceKm != null ? ` (${ws.setDistanceKm} ק״מ)` : ''}<br><span style="font-size:10px;">${ws.setIsAboveThreshold ? '🚗 מהבית' : '📍 מהסט'}</span>`
+            : '—')
+        const detailText = isCommercial
+          ? escapeHtml(ws.commercialNote || '—')
+          : describeSessionHtml(ws)
         return `
         <tr>
           <td class="num">${i + 1}</td>
           <td>${escapeHtml(ws.type || '—')}</td>
           <td>${escapeHtml(ws.date ? formatDate(ws.date) : 'ללא תאריך')}</td>
           <td class="${locClass}">${locText}</td>
-          <td class="detail">${describeSessionHtml(ws)}</td>
-          <td class="amount">₪${(ws.amount || 0).toLocaleString()}</td>
+          <td class="detail">${detailText}</td>
+          <td class="amount">${isCommercial ? '—' : `₪${(ws.amount || 0).toLocaleString()}`}</td>
         </tr>`
       }).join('')
     : `<tr><td colspan="6" class="empty">אין רישומים בתקופה הנבחרת</td></tr>`
