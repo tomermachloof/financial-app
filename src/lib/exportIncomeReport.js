@@ -178,16 +178,21 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
   const rowsHtml = sessions.length > 0
     ? sessions.map((ws, i) => {
         const locClass = ws.setIsAboveThreshold ? 'location from-home' : 'location from-set'
-        const locText = ws.setLocation
-          ? `${escapeHtml(ws.setLocation)}${ws.setDistanceKm != null ? ` (${ws.setDistanceKm} ק״מ)` : ''}<br><span style="font-size:10px;">${ws.setIsAboveThreshold ? '🚗 מהבית' : '📍 מהסט'}</span>`
-          : '—'
+        const locText = isCommercial
+          ? escapeHtml(ws.setLocation || '—')
+          : (ws.setLocation
+            ? `${escapeHtml(ws.setLocation)}${ws.setDistanceKm != null ? ` (${ws.setDistanceKm} ק״מ)` : ''}<br><span style="font-size:10px;">${ws.setIsAboveThreshold ? '🚗 מהבית' : '📍 מהסט'}</span>`
+            : '—')
+        const detailText = isCommercial
+          ? escapeHtml(ws.commercialNote || '—')
+          : describeSessionHtml(ws)
         return `
         <tr>
           <td class="num">${i + 1}</td>
           <td>${escapeHtml(ws.type || '—')}</td>
           <td>${escapeHtml(ws.date ? formatDate(ws.date) : 'ללא תאריך')}</td>
           <td class="${locClass}">${locText}</td>
-          <td class="detail">${describeSessionHtml(ws)}</td>
+          <td class="detail">${detailText}</td>
           <td class="amount">${isCommercial ? '—' : `₪${(ws.amount || 0).toLocaleString()}`}</td>
         </tr>`
       }).join('')

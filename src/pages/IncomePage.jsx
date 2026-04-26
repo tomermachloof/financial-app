@@ -518,12 +518,15 @@ export default function IncomePage() {
 
     // ── Commercial types — documentation only, no amount calc ──
     if (form.projectType === 'commercial' && t !== 'אחר') {
+      // אל תיצור רישום ריק — רק אם יש תאריך או הערה או שמדובר בעריכה קיימת
+      if (!editingId && !newSess.date && !newSess.commercialNote) return null
       return {
         id,
         type: t,
         date: newSess.date || null,
         shootStart: newSess.shootStart || null,
         shootEnd: newSess.shootEnd || null,
+        setLocation: newSess.setLocation || null,
         commercialNote: newSess.commercialNote || null,
         amount: 0,
       }
