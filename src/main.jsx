@@ -205,8 +205,25 @@ Promise.race([loadState(), timeout]).then(cloudState => {
 
       useStore.setState(patched)
     } else {
-      // המקומי חדש יותר או שווה — שומרים על המקומי, לא מחליפים
-      console.log('[Sync] local is newer or equal — keeping local state')
+      // המקומי חדש יותר או שווה — שומרים על המקומי, אבל תמיד ממזגים אישורים מהענן
+      // כדי שאישורים שנעשו במכשיר אחר לא יאבדו גם כשהמקומי חדש יותר
+      console.log('[Sync] local is newer or equal — keeping local state, merging cloud confirmations')
+      const cloudConf = (cloudState.confirmedEvents || [])
+      const localConf = (local.confirmedEvents || [])
+      const localConfIds = new Set(localConf.map(c => c.id + '|' + c.date))
+      const merged = [...localConf, ...cloudConf.filter(c => !localConfIds.has(c.id + '|' + c.date))]
+      if (merged.length > localConf.length) {
+        console.log(`[Sync] rescued ${merged.length - localConf.length} cloud confirmation(s) into local`)
+        useStore.setState({ confirmedEvents: merged })
+      }
+
+      const cloudDis = (cloudState.dismissedEvents || [])
+      const localDis = (local.dismissedEvents || [])
+      const localDisIds = new Set(localDis.map(d => d.id + '|' + d.date))
+      const mergedDis = [...localDis, ...cloudDis.filter(d => !localDisIds.has(d.id + '|' + d.date))]
+      if (mergedDis.length > localDis.length) {
+        useStore.setState({ dismissedEvents: mergedDis })
+      }
     }
   }
   renderApp()
