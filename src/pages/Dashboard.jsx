@@ -700,8 +700,9 @@ export default function Dashboard() {
                   if (e.type === 'future') {
                     deleteFutureIncome(e.id)
                   } else {
-                    dismissEvent(e.id, todayStr)
-                    setUndoStack(prev => [...prev, { action: 'dismiss', id: e.id, date: todayStr, name: e.name }])
+                    const dismissDate = e.rolledOver ? e.originalDateStr : todayStr
+                    dismissEvent(e.id, dismissDate)
+                    setUndoStack(prev => [...prev, { action: 'dismiss', id: e.id, date: dismissDate, name: e.name }])
                   }
                 }}
               />
