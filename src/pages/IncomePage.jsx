@@ -2184,7 +2184,7 @@ export default function IncomePage() {
             // לאסוף את הרישומים הנוכחיים מהטופס + רישום ממתין בטופס הרישום החדש (אם יש),
             // כך שגם רישומים שטרם נשמרו יופיעו בדיווח.
             let mergedSessions = form.sessions || liveItem.sessions || []
-            const pending = buildSessionFromNewSess(editingSessId)
+            const pending = newSess.date ? buildSessionFromNewSess(editingSessId) : null
             if (pending) {
               mergedSessions = editingSessId
                 ? mergedSessions.map(w => w.id === editingSessId ? pending : w)
@@ -2215,7 +2215,7 @@ export default function IncomePage() {
             // לאסוף את הרישומים הנוכחיים מהטופס + רישום ממתין בטופס הרישום החדש (אם יש),
             // כך שגם רישומים שטרם נשמרו יופיעו בדיווח.
             let mergedSessions = form.sessions || liveItem.sessions || []
-            const pending = buildSessionFromNewSess(editingSessId)
+            const pending = newSess.date ? buildSessionFromNewSess(editingSessId) : null
             if (pending) {
               mergedSessions = editingSessId
                 ? mergedSessions.map(w => w.id === editingSessId ? pending : w)
