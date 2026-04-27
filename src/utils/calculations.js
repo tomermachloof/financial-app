@@ -357,9 +357,10 @@ export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, d
       let loanEndDate = null
       if (!isIncome && isLoan && item.startDate) {
         if (item.paymentSchedule?.length) {
-          loanStartDate = new Date(item.paymentSchedule[0].date)
+          const parseLocal = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d) }
+          loanStartDate = parseLocal(item.paymentSchedule[0].date)
           const lastEntry = item.paymentSchedule[item.paymentSchedule.length - 1]
-          loanEndDate = new Date(lastEntry.date)
+          loanEndDate = parseLocal(lastEntry.date)
         } else {
           const start = new Date(item.startDate)
           const firstPay = new Date(start.getFullYear(), start.getMonth() + 1, chargeDay)
