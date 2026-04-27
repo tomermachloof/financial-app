@@ -790,7 +790,7 @@ export default function IncomePage() {
   const save = () => {
     // אם יש רישום תקף בטופס הרישום החדש שלא נלחץ "+ הוסף רישום" — להוסיפו אוטומטית
     let sessions = form.sessions || []
-    const pending = buildSessionFromNewSess(editingSessId)
+    const pending = newSess.date ? buildSessionFromNewSess(editingSessId) : null
     if (pending) {
       sessions = editingSessId
         ? sessions.map(w => w.id === editingSessId ? pending : w)
