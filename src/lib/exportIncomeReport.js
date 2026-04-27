@@ -116,7 +116,11 @@ const describeSessionHtml = (ws) => {
     return parts.join('<br>')
   }
   if (ws.quantity && ws.ratePerUnit) {
-    return `${ws.quantity} × ₪${ws.ratePerUnit}`
+    const parts = []
+    if (ws.customName) parts.push(escapeHtml(ws.customName))
+    if (ws.theaterLocation) parts.push(`📍 ${escapeHtml(ws.theaterLocation)}`)
+    parts.push(`${ws.quantity} × ₪${ws.ratePerUnit}`)
+    return parts.join('<br>')
   }
   return '—'
 }
@@ -225,6 +229,9 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
       border-bottom: 3px solid #4f46e5;
       padding-bottom: 16px;
       margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
     }
     .title {
       font-size: 26px;
@@ -236,6 +243,56 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
       font-size: 13px;
       color: #6b7280;
       margin: 0;
+    }
+    .logo-badge {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+    .logo-mark {
+      display: flex;
+      align-items: center;
+      background: none;
+      border-radius: 0;
+      overflow: visible;
+      box-shadow: none;
+      border: none;
+      gap: 8px;
+    }
+    .logo-word-h {
+      font-size: 22px;
+      font-weight: 900;
+      color: #4f46e5;
+      letter-spacing: 5px;
+      padding: 0;
+      font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+    }
+    .logo-divider {
+      width: 1.5px;
+      height: 28px;
+      background: #c4b5fd;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .logo-word-v {
+      font-size: 9px;
+      font-weight: 800;
+      color: #7c3aed;
+      letter-spacing: 3px;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      transform: rotate(180deg);
+      padding: 0;
+      text-transform: uppercase;
+    }
+    .logo-credit {
+      font-size: 9.5px;
+      color: #9ca3af;
+      direction: ltr;
+      text-align: right;
+      padding-right: 2px;
     }
     .info {
       display: grid;
@@ -337,8 +394,18 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
   <button class="print-btn" onclick="window.print()">📄 הדפס / שמור כ-PDF</button>
 
   <div class="header">
-    <h1 class="title">דיווח עבודה לסוכנות</h1>
-    <p class="subtitle">מסמך תיעוד ימי עבודה</p>
+    <div>
+      <h1 class="title">${item.projectType === 'theater' ? 'דיווח עבודה לתיאטרון' : 'דיווח עבודה לסוכנות'}</h1>
+      <p class="subtitle">מסמך תיעוד ימי עבודה</p>
+    </div>
+    <div class="logo-badge">
+      <div class="logo-mark">
+        <span class="logo-word-h">BASE</span>
+        <div class="logo-divider"></div>
+        <span class="logo-word-v">ACTOR</span>
+      </div>
+      <span class="logo-credit">© Tomer Machloof – System Creator and Manager</span>
+    </div>
   </div>
 
   <div class="info">

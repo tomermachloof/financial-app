@@ -174,7 +174,7 @@ const EMPTY_NEW_SESS = {
   // Rehearsal/fitting: direct hours input
   hours: '',
   // Fallback for 'אחר'
-  quantity: '1', rate: '',
+  quantity: '1', rate: '', customName: '',
   // Manual amount override (gov the computed total)
   manualMode: false, manualAmount: '',
   // Whether photo day calc uses travel hours (pickup→return) instead of shoot hours
@@ -261,7 +261,11 @@ const formatSessionDetail = (ws) => {
   }
   // Other / legacy
   if (ws.quantity != null && ws.ratePerUnit != null) {
-    return `${ws.quantity} ${unitLabel(ws.type)} × ${formatILS(ws.ratePerUnit)}`
+    const parts = []
+    if (ws.customName) parts.push(ws.customName)
+    if (ws.theaterLocation) parts.push(`📍 ${ws.theaterLocation}`)
+    parts.push(`${ws.quantity} ${unitLabel(ws.type)} × ${formatILS(ws.ratePerUnit)}`)
+    return parts.join(' · ')
   }
   if (ws.manualMode) return 'סכום ידני'
   return '—'
@@ -700,6 +704,8 @@ export default function IncomePage() {
       shootEnd: newSess.shootEnd || null,
       quantity: qty,
       ratePerUnit: rate,
+      customName: newSess.customName || null,
+      theaterLocation: newSess.theaterLocation || null,
       amount: qty * rate,
     }
   }
@@ -749,6 +755,7 @@ export default function IncomePage() {
       hours:      ws.hours     != null ? String(ws.hours)     : '',
       quantity:   ws.quantity  != null ? String(ws.quantity)  : '1',
       rate:       ws.ratePerUnit != null ? String(ws.ratePerUnit) : '',
+      customName: ws.customName || '',
       manualMode: !!ws.manualMode,
       manualAmount: ws.type === 'חזרות חודשיות'
         ? (ws.amount != null ? String(ws.amount) : '')
@@ -2121,6 +2128,12 @@ export default function IncomePage() {
                 const total = qty * rate
                 return (
                   <>
+                    <Field label="שם">
+                      <Input value={newSess.customName} onChange={v => setNewSess(s => ({ ...s, customName: v }))} placeholder="למשל: ספר טקסט, תרגיל..." />
+                    </Field>
+                    <Field label="מיקום">
+                      <Input value={newSess.theaterLocation} onChange={v => setNewSess(s => ({ ...s, theaterLocation: v }))} placeholder="שם המקום / עיר" />
+                    </Field>
                     <div className="grid grid-cols-2 gap-2">
                       <Field label="כמות">
                         <Input type="number" value={newSess.quantity} onChange={v => setNewSess(s => ({ ...s, quantity: v }))} placeholder="1" min="1" />
