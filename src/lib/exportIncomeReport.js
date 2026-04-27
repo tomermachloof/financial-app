@@ -93,7 +93,7 @@ const describeSessionHtml = (ws) => {
     return parts.length > 0 ? parts.join('<br>') : '—'
   }
   // Theater types
-  if (ws.type === 'הצגה' || ws.type === 'חזרה אחרי עלייה' || ws.type === 'צילומי טריילר' || ws.type === 'צילומי הצגה') {
+  if (ws.type === 'הצגה' || ws.type === 'חזרה אחרי עלייה' || ws.type === 'חזרת רענון' || ws.type === 'חזרת מקומים באולם חדש' || ws.type === 'חזרת טקסט' || ws.type === 'צילומי טריילר' || ws.type === 'צילומי הצגה') {
     const parts = []
     if (ws.theaterLocation) parts.push(`📍 ${ws.theaterLocation}`)
     if (ws.shootStart && ws.shootEnd) {

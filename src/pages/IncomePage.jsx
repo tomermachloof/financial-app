@@ -238,7 +238,7 @@ const formatSessionDetail = (ws) => {
     return parts.length > 0 ? parts.join(' · ') : 'הצגה'
   }
   if (ws.type === 'חזרות חודשיות') return ws.theaterMonth || 'חודש'
-  if (ws.type === 'חזרה אחרי עלייה' || ws.type === 'צילומי טריילר' || ws.type === 'צילומי הצגה') {
+  if (ws.type === 'חזרה אחרי עלייה' || ws.type === 'חזרת רענון' || ws.type === 'חזרת מקומים באולם חדש' || ws.type === 'חזרת טקסט' || ws.type === 'צילומי טריילר' || ws.type === 'צילומי הצגה') {
     const parts = []
     if (timeStr) parts.push(timeStr)
     if (ws.manualMode) parts.push('סכום ידני')
@@ -274,12 +274,15 @@ const FILM_SESSION_TYPES = [
   { value: 'אחר',       label: 'אחר'       },
 ]
 const THEATER_SESSION_TYPES = [
-  { value: 'הצגה',              label: '🎭 הצגה' },
-  { value: 'חזרות חודשיות',     label: '📅 חזרות חודשיות' },
-  { value: 'חזרה אחרי עלייה',  label: '🔄 חזרה' },
-  { value: 'צילומי טריילר',     label: '🎬 צילומי טריילר' },
-  { value: 'צילומי הצגה',       label: '🎥 צילומי הצגה' },
-  { value: 'אחר',               label: 'אחר' },
+  { value: 'הצגה',                        label: '🎭 הצגה' },
+  { value: 'חזרות חודשיות',               label: '📅 חזרות חודשיות' },
+  { value: 'חזרה אחרי עלייה',            label: '🔄 חזרה אחרי עלייה' },
+  { value: 'חזרת רענון',                 label: '🔁 חזרת רענון' },
+  { value: 'חזרת מקומים באולם חדש',      label: '🏛️ חזרת מקומים' },
+  { value: 'חזרת טקסט',                  label: '📝 חזרת טקסט' },
+  { value: 'צילומי טריילר',              label: '🎬 צילומי טריילר' },
+  { value: 'צילומי הצגה',                label: '🎥 צילומי הצגה' },
+  { value: 'אחר',                         label: 'אחר' },
 ]
 const COMMERCIAL_SESSION_TYPES = [
   { value: 'צילום',          label: '📷 צילום' },
@@ -607,10 +610,13 @@ export default function IncomePage() {
     }
     // ── Theater types ──
     const theaterTypes = {
-      'הצגה':              'theaterShowPrice',
-      'חזרה אחרי עלייה':  'theaterPostRehearsal',
-      'צילומי טריילר':     'theaterPostRehearsal',
-      'צילומי הצגה':       'theaterPostRehearsal',
+      'הצגה':                       'theaterShowPrice',
+      'חזרה אחרי עלייה':           'theaterPostRehearsal',
+      'חזרת רענון':                 'theaterPostRehearsal',
+      'חזרת מקומים באולם חדש':     'theaterPostRehearsal',
+      'חזרת טקסט':                  'theaterPostRehearsal',
+      'צילומי טריילר':              'theaterPostRehearsal',
+      'צילומי הצגה':                'theaterPostRehearsal',
     }
     if (theaterTypes[t]) {
       const price = Number(form[theaterTypes[t]]) || 0
@@ -705,6 +711,11 @@ export default function IncomePage() {
   const [autoOpenReturn, setAutoOpenReturn] = useState(false)
   const [autoOpenDubbingEnd, setAutoOpenDubbingEnd] = useState(false)
 
+  const defaultSessType = () =>
+    form.projectType === 'commercial' ? 'צילום' :
+    form.projectType === 'theater'    ? 'הצגה'  :
+    form.projectType === 'dubbing'    ? 'הקלטה' : 'יום צילום'
+
   const addSessToForm = () => {
     const sess = buildSessionFromNewSess(editingSessId)
     if (!sess) return
@@ -720,7 +731,7 @@ export default function IncomePage() {
     if (modal !== 'add' && modal?.item) {
       updateFutureIncome(modal.item.id, form.projectType === 'commercial' ? { sessions } : { sessions, amount: totalAmount })
     }
-    setNewSess(EMPTY_NEW_SESS)
+    setNewSess({ ...EMPTY_NEW_SESS, type: defaultSessType() })
     setEditingSessId(null)
   }
 
@@ -758,7 +769,7 @@ export default function IncomePage() {
 
   const cancelEditSess = () => {
     setEditingSessId(null)
-    setNewSess(EMPTY_NEW_SESS)
+    setNewSess({ ...EMPTY_NEW_SESS, type: defaultSessType() })
   }
   const removeSessFromForm = (id) => {
     const sessions = (form.sessions || []).filter(w => w.id !== id)
@@ -771,7 +782,7 @@ export default function IncomePage() {
     // אם היינו בעריכה של הרישום שנמחק — לצאת ממצב עריכה
     if (editingSessId === id) {
       setEditingSessId(null)
-      setNewSess(EMPTY_NEW_SESS)
+      setNewSess({ ...EMPTY_NEW_SESS, type: defaultSessType() })
     }
   }
   const closeModal = () => { setModal(null); setEditingSessId(null); setNewSess(EMPTY_NEW_SESS) }
@@ -1441,7 +1452,7 @@ export default function IncomePage() {
             <div className="bg-gray-50 rounded-xl p-3 space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 <Field label="סוג">
-                  <Select value={newSess.type} onChange={v => setNewSess({ ...EMPTY_NEW_SESS, type: v, date: newSess.date })} options={form.projectType === 'commercial' ? COMMERCIAL_SESSION_TYPES : form.projectType === 'theater' ? THEATER_SESSION_TYPES : form.projectType === 'dubbing' ? DUBBING_SESSION_TYPES : FILM_SESSION_TYPES} />
+                  <Select value={newSess.type} onChange={v => setNewSess(s => ({ ...s, type: v }))} options={form.projectType === 'commercial' ? COMMERCIAL_SESSION_TYPES : form.projectType === 'theater' ? THEATER_SESSION_TYPES : form.projectType === 'dubbing' ? DUBBING_SESSION_TYPES : FILM_SESSION_TYPES} />
                 </Field>
                 <Field label="תאריך">
                   <Input type="date" value={newSess.date} onChange={v => setNewSess(s => ({ ...s, date: v }))} />
@@ -1781,23 +1792,24 @@ export default function IncomePage() {
               })()}
 
               {/* ═══ Theater types (other than חזרות חודשיות) ═══ */}
-              {['הצגה', 'חזרה אחרי עלייה', 'צילומי טריילר', 'צילומי הצגה'].includes(newSess.type) && (() => {
+              {['הצגה', 'חזרה אחרי עלייה', 'חזרת רענון', 'חזרת מקומים באולם חדש', 'חזרת טקסט', 'צילומי טריילר', 'צילומי הצגה'].includes(newSess.type) && (() => {
                 const priceMap = {
-                  'הצגה':              form.theaterShowPrice,
-                  'חזרה אחרי עלייה':  form.theaterPostRehearsal,
-                  'צילומי טריילר':     form.theaterPostRehearsal,
-                  'צילומי הצגה':       form.theaterPostRehearsal,
+                  'הצגה':                       form.theaterShowPrice,
+                  'חזרה אחרי עלייה':            form.theaterPostRehearsal,
+                  'חזרת רענון':                 form.theaterPostRehearsal,
+                  'חזרת מקומים באולם חדש':     form.theaterPostRehearsal,
+                  'חזרת טקסט':                  form.theaterPostRehearsal,
+                  'צילומי טריילר':              form.theaterPostRehearsal,
+                  'צילומי הצגה':                form.theaterPostRehearsal,
                 }
                 const price = Number(priceMap[newSess.type]) || 0
                 const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : price
                 const canAdd = newSess.manualMode ? newSess.manualAmount !== '' : finalAmt > 0
                 return (
                   <>
-                    {newSess.type === 'הצגה' && (
-                      <Field label="מיקום">
-                        <Input value={newSess.theaterLocation} onChange={v => setNewSess(s => ({ ...s, theaterLocation: v }))} placeholder="שם התיאטרון / עיר" />
-                      </Field>
-                    )}
+                    <Field label="מיקום">
+                      <Input value={newSess.theaterLocation} onChange={v => setNewSess(s => ({ ...s, theaterLocation: v }))} placeholder="שם התיאטרון / עיר" />
+                    </Field>
 
                     <div className="bg-white rounded-lg p-2 space-y-2">
                       <p className="text-xs text-gray-500 font-medium">
