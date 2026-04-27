@@ -103,6 +103,19 @@ const describeSessionHtml = (ws) => {
     return parts.length > 0 ? parts.join('<br>') : ws.type
   }
   if (ws.type === 'חזרות חודשיות') return ws.theaterMonth || 'חודש'
+  // Lecture
+  if (ws.type === 'הרצאה') {
+    const parts = []
+    if (ws.lectureName) parts.push(escapeHtml(ws.lectureName))
+    if (ws.lectureClient) parts.push(escapeHtml(ws.lectureClient))
+    if (ws.lectureLocation) parts.push(`📍 ${escapeHtml(ws.lectureLocation)}`)
+    if (ws.lectureStart && ws.lectureEnd) {
+      parts.push(`${ws.lectureStart}–${ws.lectureEnd}`)
+      parts.push(exactDuration(ws.lectureStart, ws.lectureEnd))
+    }
+    if (ws.lectureInvoiceReceived) parts.push('✓ חשבונית התקבלה')
+    return parts.length > 0 ? parts.join('<br>') : 'הרצאה'
+  }
   // Commercial / other with times
   if (ws.shootStart && ws.shootEnd) {
     const parts = [`${ws.shootStart}–${ws.shootEnd}`]
@@ -395,7 +408,7 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
 
   <div class="header">
     <div>
-      <h1 class="title">${item.projectType === 'theater' ? 'דיווח עבודה לתיאטרון' : 'דיווח עבודה לסוכנות'}</h1>
+      <h1 class="title">${item.projectType === 'theater' ? 'דיווח עבודה לתיאטרון' : item.projectType === 'lecture' ? 'דיווח הרצאות' : 'דיווח עבודה לסוכנות'}</h1>
       <p class="subtitle">מסמך תיעוד ימי עבודה</p>
     </div>
     <div class="logo-badge">

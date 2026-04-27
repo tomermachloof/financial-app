@@ -193,6 +193,13 @@ const EMPTY_NEW_SESS = {
   dubbingEnd: '',          // recording end time HH:MM
   dubbingHours: '',        // auto-calculated or manual override
   dubbingHasSong: false,   // solo/duet song bonus
+  // Lecture fields
+  lectureName: '',
+  lectureStart: '',
+  lectureEnd: '',
+  lectureLocation: '',
+  lectureClient: '',
+  lectureInvoiceReceived: false,
 }
 const unitLabel = t => t === 'יום צילום' ? 'ימים' : 'שעות'
 
@@ -259,6 +266,16 @@ const formatSessionDetail = (ws) => {
     if (ws.manualMode) parts.push('סכום ידני')
     return parts.join(' · ')
   }
+  // Lecture
+  if (ws.type === 'הרצאה') {
+    const parts = []
+    if (ws.lectureName) parts.push(ws.lectureName)
+    if (ws.lectureClient) parts.push(ws.lectureClient)
+    if (ws.lectureLocation) parts.push(`📍 ${ws.lectureLocation}`)
+    if (ws.lectureStart && ws.lectureEnd) parts.push(`${ws.lectureStart}–${ws.lectureEnd}`)
+    if (ws.lectureInvoiceReceived) parts.push('✓ חשבונית')
+    return parts.length > 0 ? parts.join(' · ') : 'הרצאה'
+  }
   // Other / legacy
   if (ws.quantity != null && ws.ratePerUnit != null) {
     const parts = []
@@ -309,6 +326,9 @@ const DUBBING_RATE_PRESETS = {
   independent: { firstHour: 200, halfHour: 100, songBonus: 150 },
   tv:          { firstHour: 150, halfHour: 75,  songBonus: 150 },
 }
+const LECTURE_SESSION_TYPES = [
+  { value: 'הרצאה', label: '🎤 הרצאה' },
+]
 function computeDubbingAmount(hours, firstHourRate, halfHourRate, hasSong, songBonus) {
   if (!hours || hours <= 0) return 0
   // First hour
@@ -443,7 +463,7 @@ export default function IncomePage() {
   const [showTypePicker, setShowTypePicker] = useState(false)
   const [pickerOwner, setPickerOwner] = useState('tomer')
   const openAdd  = (projectType = 'film', owner = 'tomer') => {
-    const defaultSessType = projectType === 'commercial' ? 'צילום' : projectType === 'theater' ? 'הצגה' : projectType === 'dubbing' ? 'הקלטה' : 'יום צילום'
+    const defaultSessType = projectType === 'commercial' ? 'צילום' : projectType === 'theater' ? 'הצגה' : projectType === 'dubbing' ? 'הקלטה' : projectType === 'lecture' ? 'הרצאה' : 'יום צילום'
     setForm({ ...EMPTY_INCOME, projectType, owner })
     setNewSess({ ...EMPTY_NEW_SESS, type: defaultSessType })
     setModal('add')
@@ -474,7 +494,7 @@ export default function IncomePage() {
       commercialPlatform: item.commercialPlatform ?? '',
       commercialShootDaysContract: item.commercialShootDaysContract ?? '',
     })
-    const editDefaultType = (item.projectType || 'film') === 'commercial' ? 'צילום' : (item.projectType || 'film') === 'theater' ? 'הצגה' : (item.projectType || 'film') === 'dubbing' ? 'הקלטה' : 'יום צילום'
+    const editDefaultType = (item.projectType || 'film') === 'commercial' ? 'צילום' : (item.projectType || 'film') === 'theater' ? 'הצגה' : (item.projectType || 'film') === 'dubbing' ? 'הקלטה' : (item.projectType || 'film') === 'lecture' ? 'הרצאה' : 'יום צילום'
     setNewSess({ ...EMPTY_NEW_SESS, type: editDefaultType })
     setModal({ item })
   }
@@ -692,6 +712,22 @@ export default function IncomePage() {
         amount: finalAmt,
       }
     }
+    // ── Lecture ──
+    if (form.projectType === 'lecture') {
+      if (!newSess.date && !newSess.lectureName && !newSess.manualAmount) return null
+      return {
+        id,
+        type: 'הרצאה',
+        date: newSess.date || null,
+        lectureName: newSess.lectureName || null,
+        lectureStart: newSess.lectureStart || null,
+        lectureEnd: newSess.lectureEnd || null,
+        lectureLocation: newSess.lectureLocation || null,
+        lectureClient: newSess.lectureClient || null,
+        lectureInvoiceReceived: !!newSess.lectureInvoiceReceived,
+        amount: Number(newSess.manualAmount) || 0,
+      }
+    }
     // 'אחר' — לפי כמות × תעריף
     if (!newSess.rate) return null
     const qty  = Number(newSess.quantity) || 1
@@ -716,11 +752,13 @@ export default function IncomePage() {
   const [autoOpenEnd, setAutoOpenEnd] = useState(false)
   const [autoOpenReturn, setAutoOpenReturn] = useState(false)
   const [autoOpenDubbingEnd, setAutoOpenDubbingEnd] = useState(false)
+  const [autoOpenLectureEnd, setAutoOpenLectureEnd] = useState(false)
 
   const defaultSessType = () =>
     form.projectType === 'commercial' ? 'צילום' :
     form.projectType === 'theater'    ? 'הצגה'  :
-    form.projectType === 'dubbing'    ? 'הקלטה' : 'יום צילום'
+    form.projectType === 'dubbing'    ? 'הקלטה' :
+    form.projectType === 'lecture'    ? 'הרצאה' : 'יום צילום'
 
   const addSessToForm = () => {
     const sess = buildSessionFromNewSess(editingSessId)
@@ -757,7 +795,7 @@ export default function IncomePage() {
       rate:       ws.ratePerUnit != null ? String(ws.ratePerUnit) : '',
       customName: ws.customName || '',
       manualMode: !!ws.manualMode,
-      manualAmount: ws.type === 'חזרות חודשיות'
+      manualAmount: ws.type === 'חזרות חודשיות' || ws.type === 'הרצאה'
         ? (ws.amount != null ? String(ws.amount) : '')
         : (ws.manualAmount != null ? String(ws.manualAmount) : ''),
       useTravelForCalc: !!ws.useTravelForCalc,
@@ -771,6 +809,12 @@ export default function IncomePage() {
       dubbingEnd: ws.dubbingEnd || '',
       dubbingHours: ws.dubbingHours != null ? String(ws.dubbingHours) : '',
       dubbingHasSong: !!ws.dubbingHasSong,
+      lectureName: ws.lectureName || '',
+      lectureStart: ws.lectureStart || '',
+      lectureEnd: ws.lectureEnd || '',
+      lectureLocation: ws.lectureLocation || '',
+      lectureClient: ws.lectureClient || '',
+      lectureInvoiceReceived: !!ws.lectureInvoiceReceived,
     })
   }
 
@@ -975,6 +1019,13 @@ export default function IncomePage() {
               <span className="text-3xl">🎙️</span>
               <span className="text-sm font-bold text-pink-700">דיבוב</span>
             </button>
+            <button
+              onClick={() => openAdd('lecture', pickerOwner)}
+              className="w-full py-5 bg-teal-50 hover:bg-teal-100 rounded-2xl flex flex-col items-center gap-1 transition-colors active:scale-95"
+            >
+              <span className="text-3xl">🎤</span>
+              <span className="text-sm font-bold text-teal-700">הרצאות</span>
+            </button>
           </div>
         </Modal>
       )}
@@ -1016,8 +1067,8 @@ export default function IncomePage() {
             </div>
           )}
           {/* ── סוג פרויקט (תצוגה בלבד) ── */}
-          <div className={`text-center text-xs font-bold px-3 py-1.5 rounded-full mb-2 ${form.projectType === 'commercial' ? 'bg-orange-100 text-orange-700' : form.projectType === 'theater' ? 'bg-purple-100 text-purple-700' : form.projectType === 'dubbing' ? 'bg-pink-200 text-pink-800' : 'bg-blue-100 text-blue-700'}`}>
-            {form.projectType === 'commercial' ? '💼 מסחרי / קמפיין' : form.projectType === 'theater' ? '🎭 תיאטרון' : form.projectType === 'dubbing' ? '🎙️ דיבוב' : '🎬 קולנוע / טלוויזיה'}
+          <div className={`text-center text-xs font-bold px-3 py-1.5 rounded-full mb-2 ${form.projectType === 'commercial' ? 'bg-orange-100 text-orange-700' : form.projectType === 'theater' ? 'bg-purple-100 text-purple-700' : form.projectType === 'dubbing' ? 'bg-pink-200 text-pink-800' : form.projectType === 'lecture' ? 'bg-teal-100 text-teal-700' : 'bg-blue-100 text-blue-700'}`}>
+            {form.projectType === 'commercial' ? '💼 מסחרי / קמפיין' : form.projectType === 'theater' ? '🎭 תיאטרון' : form.projectType === 'dubbing' ? '🎙️ דיבוב' : form.projectType === 'lecture' ? '🎤 הרצאות' : '🎬 קולנוע / טלוויזיה'}
           </div>
           {/* ── גרירת חוזה ── */}
           <div
@@ -1400,7 +1451,7 @@ export default function IncomePage() {
 
           {/* ── Work sessions ── */}
           <div className="border-t border-gray-100 pt-3 space-y-2">
-            <p className="text-xs font-semibold text-gray-500">{form.projectType === 'commercial' ? 'תיעוד פעילויות' : form.projectType === 'dubbing' ? 'פירוט הקלטות' : 'פירוט ימי עבודה'}</p>
+            <p className="text-xs font-semibold text-gray-500">{form.projectType === 'commercial' ? 'תיעוד פעילויות' : form.projectType === 'dubbing' ? 'פירוט הקלטות' : form.projectType === 'lecture' ? 'פירוט הרצאות' : 'פירוט ימי עבודה'}</p>
 
             {/* Existing sessions */}
             {(form.sessions || []).length > 0 && (
@@ -1459,7 +1510,7 @@ export default function IncomePage() {
             <div className="bg-gray-50 rounded-xl p-3 space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 <Field label="סוג">
-                  <Select value={newSess.type} onChange={v => setNewSess(s => ({ ...s, type: v }))} options={form.projectType === 'commercial' ? COMMERCIAL_SESSION_TYPES : form.projectType === 'theater' ? THEATER_SESSION_TYPES : form.projectType === 'dubbing' ? DUBBING_SESSION_TYPES : FILM_SESSION_TYPES} />
+                  <Select value={newSess.type} onChange={v => setNewSess(s => ({ ...s, type: v }))} options={form.projectType === 'commercial' ? COMMERCIAL_SESSION_TYPES : form.projectType === 'theater' ? THEATER_SESSION_TYPES : form.projectType === 'dubbing' ? DUBBING_SESSION_TYPES : form.projectType === 'lecture' ? LECTURE_SESSION_TYPES : FILM_SESSION_TYPES} />
                 </Field>
                 <Field label="תאריך">
                   <Input type="date" value={newSess.date} onChange={v => setNewSess(s => ({ ...s, date: v }))} />
@@ -2121,6 +2172,63 @@ export default function IncomePage() {
                 )
               })()}
 
+              {/* ═══ Lecture ═══ */}
+              {form.projectType === 'lecture' && (() => {
+                const amount = Number(newSess.manualAmount) || 0
+                const canAdd = !!newSess.date || !!newSess.lectureName || amount > 0
+                return (
+                  <>
+                    <Field label="שם ההרצאה">
+                      <Input value={newSess.lectureName} onChange={v => setNewSess(s => ({ ...s, lectureName: v }))} placeholder="נושא / כותרת ההרצאה" />
+                    </Field>
+                    <Field label="גוף מזמין">
+                      <Input value={newSess.lectureClient} onChange={v => setNewSess(s => ({ ...s, lectureClient: v }))} placeholder="חברה / עמותה / בית ספר..." />
+                    </Field>
+                    <Field label="מיקום">
+                      <Input value={newSess.lectureLocation} onChange={v => setNewSess(s => ({ ...s, lectureLocation: v }))} placeholder="עיר / כתובת" />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-2" dir="rtl">
+                      <Field label="שעת התחלה">
+                        <TimePicker
+                          value={newSess.lectureStart}
+                          onChange={v => setNewSess(s => ({ ...s, lectureStart: v }))}
+                          defaultHint="09:00"
+                          label="שעת התחלה"
+                          onPicked={() => setTimeout(() => setAutoOpenLectureEnd(true), 150)}
+                        />
+                      </Field>
+                      <Field label="שעת סיום">
+                        <TimePicker
+                          value={newSess.lectureEnd}
+                          onChange={v => setNewSess(s => ({ ...s, lectureEnd: v }))}
+                          defaultHint={offsetTime(newSess.lectureStart, 1) || '10:00'}
+                          label="שעת סיום"
+                          triggerOpen={autoOpenLectureEnd}
+                          onOpenHandled={() => setAutoOpenLectureEnd(false)}
+                        />
+                      </Field>
+                    </div>
+                    <Field label="סכום (₪)">
+                      <Input type="number" value={newSess.manualAmount} onChange={v => setNewSess(s => ({ ...s, manualAmount: v }))} placeholder="0" />
+                    </Field>
+                    <label className="flex items-center gap-2 px-1 cursor-pointer">
+                      <input type="checkbox" checked={!!newSess.lectureInvoiceReceived}
+                        onChange={e => setNewSess(s => ({ ...s, lectureInvoiceReceived: e.target.checked }))}
+                        className="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+                      <span className="text-xs font-medium text-gray-600">✓ התקבלה חשבונית</span>
+                    </label>
+                    <button onClick={addSessToForm} disabled={!canAdd} className="w-full bg-teal-600 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
+                      {editingSessId ? 'עדכן רישום' : '+ הוסף רישום'}
+                    </button>
+                    {editingSessId && (
+                      <button onClick={cancelEditSess} className="w-full bg-gray-100 text-gray-600 text-xs font-semibold py-1.5 rounded-xl mt-1">
+                        ביטול עריכה
+                      </button>
+                    )}
+                  </>
+                )
+              })()}
+
               {/* ═══ Other ═══ */}
               {newSess.type === 'אחר' && (() => {
                 const qty = Number(newSess.quantity) || 0
@@ -2390,8 +2498,8 @@ function IncomeCard({ item, onEdit, onReceive, onUndo, onWorkLog, onClose, onReo
             {isReceived ? (
               <span className="text-xs bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">✓ התקבל</span>
             ) : isWorkLog ? (
-              <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white' : item.projectType === 'commercial' ? 'bg-orange-100 text-orange-700' : item.projectType === 'theater' ? 'bg-purple-100 text-purple-700' : item.projectType === 'dubbing' ? 'bg-pink-200 text-pink-800' : 'bg-blue-100 text-blue-700'}`}>
-                {item.projectType === 'commercial' ? '💼' : item.projectType === 'theater' ? '🎭' : item.projectType === 'dubbing' ? '🎙️' : '🎬'} בתהוות{sessionCount > 0 ? ` · ${sessionCount} רישומים` : ''}
+              <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white' : item.projectType === 'commercial' ? 'bg-orange-100 text-orange-700' : item.projectType === 'theater' ? 'bg-purple-100 text-purple-700' : item.projectType === 'dubbing' ? 'bg-pink-200 text-pink-800' : item.projectType === 'lecture' ? 'bg-teal-100 text-teal-700' : 'bg-blue-100 text-blue-700'}`}>
+                {item.projectType === 'commercial' ? '💼' : item.projectType === 'theater' ? '🎭' : item.projectType === 'dubbing' ? '🎙️' : item.projectType === 'lecture' ? '🎤' : '🎬'} בתהוות{sessionCount > 0 ? ` · ${sessionCount} רישומים` : ''}
               </span>
             ) : (
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${hasGradient ? 'bg-white bg-opacity-20 text-white' : badgeColor}`}>
@@ -2433,7 +2541,7 @@ function IncomeCard({ item, onEdit, onReceive, onUndo, onWorkLog, onClose, onReo
 
         <div className="flex flex-col items-end gap-2 mr-3">
           <div className="text-left">
-            <span className={`text-base font-bold ${isReceived ? 'text-gray-400' : hasGradient ? 'text-white' : isWorkLog && item.projectType === 'commercial' ? 'text-orange-600' : isWorkLog && item.projectType === 'theater' ? 'text-purple-600' : isWorkLog && item.projectType === 'dubbing' ? 'text-pink-600' : isWorkLog ? 'text-blue-600' : 'text-green-600'}`}>
+            <span className={`text-base font-bold ${isReceived ? 'text-gray-400' : hasGradient ? 'text-white' : isWorkLog && item.projectType === 'commercial' ? 'text-orange-600' : isWorkLog && item.projectType === 'theater' ? 'text-purple-600' : isWorkLog && item.projectType === 'dubbing' ? 'text-pink-600' : isWorkLog && item.projectType === 'lecture' ? 'text-teal-600' : isWorkLog ? 'text-blue-600' : 'text-green-600'}`}>
               {(item.amount || 0) > 0 ? formatILS(item.amount) : isWorkLog ? '—' : '—'}
             </span>
             {(item.amount || 0) > 0 && (item.agentCommission || item.addVat) && (() => {
