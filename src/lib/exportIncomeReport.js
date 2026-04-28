@@ -95,7 +95,6 @@ const describeSessionHtml = (ws) => {
   // Theater types
   if (ws.type === 'הצגה' || ws.type === 'חזרה אחרי עלייה' || ws.type === 'חזרת רענון' || ws.type === 'חזרת מקומים באולם חדש' || ws.type === 'חזרת טקסט' || ws.type === 'צילומי טריילר' || ws.type === 'צילומי הצגה') {
     const parts = []
-    if (ws.theaterLocation) parts.push(`📍 ${ws.theaterLocation}`)
     if (ws.shootStart && ws.shootEnd) {
       parts.push(`${ws.shootStart}–${ws.shootEnd}`)
       parts.push(exactDuration(ws.shootStart, ws.shootEnd))
@@ -108,7 +107,6 @@ const describeSessionHtml = (ws) => {
     const parts = []
     if (ws.lectureName) parts.push(escapeHtml(ws.lectureName))
     if (ws.lectureClient) parts.push(escapeHtml(ws.lectureClient))
-    if (ws.lectureLocation) parts.push(`📍 ${escapeHtml(ws.lectureLocation)}`)
     if (ws.lectureStart && ws.lectureEnd) {
       parts.push(`${ws.lectureStart}–${ws.lectureEnd}`)
       parts.push(exactDuration(ws.lectureStart, ws.lectureEnd))
@@ -131,7 +129,6 @@ const describeSessionHtml = (ws) => {
   if (ws.quantity && ws.ratePerUnit) {
     const parts = []
     if (ws.customName) parts.push(escapeHtml(ws.customName))
-    if (ws.theaterLocation) parts.push(`📍 ${escapeHtml(ws.theaterLocation)}`)
     parts.push(`${ws.quantity} × ₪${ws.ratePerUnit}`)
     return parts.join('<br>')
   }
@@ -195,11 +192,12 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
   const rowsHtml = sessions.length > 0
     ? sessions.map((ws, i) => {
         const locClass = ws.setIsAboveThreshold ? 'location from-home' : 'location from-set'
+        const genericLoc = ws.theaterLocation || ws.lectureLocation || null
         const locText = isCommercial
           ? escapeHtml(ws.setLocation || '—')
           : (ws.setLocation
             ? `${escapeHtml(ws.setLocation)}${ws.setDistanceKm != null ? ` (${ws.setDistanceKm} ק״מ)` : ''}<br><span style="font-size:10px;">${ws.setIsAboveThreshold ? '🚗 מהבית' : '📍 מהסט'}</span>`
-            : '—')
+            : genericLoc ? `📍 ${escapeHtml(genericLoc)}` : '—')
         const detailText = isCommercial
           ? escapeHtml(ws.commercialNote || '—')
           : describeSessionHtml(ws)
