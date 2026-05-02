@@ -80,6 +80,29 @@ if (savedCookies.length > 0) {
   console.log('cookies הוזרקו לדפדפן');
 }
 
+// ── Override browser.close לתפיסת cookies לפני שה-library סוגרת הדפדפן ──
+// israeli-bank-scrapers סוגר את הדפדפן פנימית — override מאפשר לנו
+// לשלוף cookies ברגע האחרון לפני הסגירה בפועל.
+const _origClose = browser.close.bind(browser);
+browser.close = async () => {
+  try {
+    const page = await browser.newPage();
+    const cookies = await page.cookies(
+      'https://login.bankhapoalim.co.il',
+      'https://www.bankhapoalim.co.il',
+      'https://biz2.bankhapoalim.co.il',
+      'https://hapoalim.co.il',
+    );
+    await page.close();
+    console.log(`נמצאו ${cookies.length} cookies לפועלים`);
+    if (cookies.length > 0) await saveCookies(cookies);
+    else console.warn('לא נמצאו cookies — session ייתכן שלא נשמר');
+  } catch (e) {
+    console.warn('שמירת cookies לפני סגירה נכשלה:', e.message);
+  }
+  await _origClose();
+};
+
 const scraper = createScraper({
   companyId: CompanyTypes.hapoalim,
   startDate: new Date(new Date().setDate(1)),
@@ -92,36 +115,7 @@ const result = await scraper.scrape({
   userCode: env.HAPOALIM_USER,
   password: env.HAPOALIM_PASS,
 });
-
-// ── שמירת cookies לפני סגירת הדפדפן ────────────────────────────
-// נשמר גם לוקאלית (לגיבוי) וגם ב-CI — כדי ש-session יישאר עדכני ב-Supabase.
-try {
-  // CDP: מושך את כל ה-cookies מכל הדומיינים
-  const allPages = await browser.pages();
-  const anyPage = allPages[allPages.length - 1];
-  if (anyPage) {
-    const client = await anyPage.createCDPSession();
-    const { cookies: allCookies } = await client.send('Network.getAllCookies');
-    const hapoalimCookies = allCookies.filter(c =>
-      c.domain && (c.domain.includes('hapoalim') || c.domain.includes('bankhapoalim'))
-    );
-    if (hapoalimCookies.length > 0) await saveCookies(hapoalimCookies);
-  }
-} catch (e) {
-  console.warn('שמירת cookies דרך CDP נכשלה, מנסה שיטה חלופית:', e.message);
-  // שיטה חלופית: ניווט לעמוד פועלים ושליפת cookies
-  try {
-    const page = await browser.newPage();
-    await page.goto('https://www.bankhapoalim.co.il', { waitUntil: 'domcontentloaded', timeout: 10000 });
-    const cookies = await page.cookies();
-    await page.close();
-    if (cookies.length > 0) await saveCookies(cookies);
-  } catch (e2) {
-    console.warn('שיטה חלופית גם נכשלה:', e2.message);
-  }
-}
-
-await browser.close();
+// הדפדפן נסגר כעת על ידי ה-library (ה-override שמר את ה-cookies)
 
 // ── טיפול בשגיאות ────────────────────────────────────────────────
 if (!result.success) {
