@@ -41,6 +41,7 @@ export default function IncomeEditModal({ item, onClose }) {
   const liveItem = futureIncome.find(f => f.id === item.id) || item
 
   const [showPartialModal, setShowPartialModal] = useState(false)
+  const [viewingFile, setViewingFile] = useState(null)
 
   const [form, setForm] = useState({
     name:            item.name            || '',
@@ -77,6 +78,12 @@ export default function IncomeEditModal({ item, onClose }) {
     }
     reader.readAsDataURL(file)
     e.target.value = ''
+  }
+
+  const openFile = (dataUrl, fileName) => {
+    if (!dataUrl) return
+    const isImage = dataUrl.startsWith('data:image/')
+    setViewingFile({ url: dataUrl, name: fileName, isImage })
   }
 
   const removeFile = (fileId) => {
@@ -130,6 +137,28 @@ export default function IncomeEditModal({ item, onClose }) {
       expectedDate: form.expectedDate || null,
     })
     onClose()
+  }
+
+  // Overlay לצפייה בקובץ בתוך האפליקציה
+  if (viewingFile) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#000', display: 'flex', flexDirection: 'column', height: '100dvh' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', background: '#1f2937', flexShrink: 0 }}>
+          <span style={{ color: 'white', fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{viewingFile.name}</span>
+          <button onClick={() => setViewingFile(null)} style={{ color: 'white', fontSize: '24px', padding: '0 8px', flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+        </div>
+        {viewingFile.isImage
+          ? <img src={viewingFile.url} style={{ flex: 1, objectFit: 'contain', width: '100%', height: 0, minHeight: 0 }} alt={viewingFile.name} />
+          : <div style={{ flex: 1, overflow: 'hidden', position: 'relative', height: 0, minHeight: 0 }}>
+              <iframe
+                src={viewingFile.url}
+                style={{ position: 'absolute', top: 0, left: 0, width: '200%', height: '200%', border: 'none', transform: 'scale(0.5)', transformOrigin: '0 0' }}
+                title={viewingFile.name}
+              />
+            </div>
+        }
+      </div>
+    )
   }
 
   // חלון התשלום החלקי מוצג כחלון עצמאי מעל חלון העריכה
@@ -190,9 +219,9 @@ export default function IncomeEditModal({ item, onClose }) {
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${isInvoice ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
                       {isInvoice ? 'חשבונית' : 'פירוט תשלום'}
                     </span>
-                    <a href={f.file} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline truncate">
+                    <button type="button" onClick={() => openFile(f.file, f.fileName)} className="text-xs text-blue-600 underline truncate text-right">
                       {f.fileName}
-                    </a>
+                    </button>
                     {f.uploadedAt && <span className="text-[10px] text-gray-400 shrink-0">{formatDate(f.uploadedAt)}</span>}
                   </div>
                   <button type="button" onClick={() => removeFile(f.id)} className="text-red-400 text-xs px-1.5 hover:bg-red-50 rounded shrink-0">✕</button>

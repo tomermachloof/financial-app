@@ -192,7 +192,7 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
   const rowsHtml = sessions.length > 0
     ? sessions.map((ws, i) => {
         const locClass = ws.setIsAboveThreshold ? 'location from-home' : 'location from-set'
-        const genericLoc = ws.theaterLocation || ws.lectureLocation || null
+        const genericLoc = ws.theaterLocation || ws.lectureLocation || ws.rehearsalLocation || ws.dubbingLocation || null
         const locText = isCommercial
           ? escapeHtml(ws.setLocation || '—')
           : (ws.setLocation

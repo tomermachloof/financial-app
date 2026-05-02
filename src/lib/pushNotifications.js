@@ -63,6 +63,7 @@ export async function subscribeToPush() {
     // Replace any previous entry from the same device, then add this one
     const next    = list.filter(s => endpointKey(s) !== key)
     next.push(subJson)
+    if (next.length > 3) next.splice(0, next.length - 3)
     await writeSubscriptions(next)
 
     // Backwards compatibility — also keep the old single-entry row in sync
@@ -133,6 +134,7 @@ export async function autoRefreshSubscription() {
     const list    = await readSubscriptions()
     const next    = list.filter(s => endpointKey(s) !== key)
     next.push(subJson)
+    if (next.length > 3) next.splice(0, next.length - 3)
     await writeSubscriptions(next)
 
     console.log('[Push] auto-refreshed subscription')

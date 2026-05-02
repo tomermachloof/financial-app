@@ -138,10 +138,10 @@ export default function Dashboard() {
       if (item) form = { loanId: item.id, field: 'monthlyPayment', value: String(item.monthlyPayment || ''), chargeDay: String(item.chargeDay || '') }
     } else if (event.type === 'expense') {
       item = expenses.find(e => e.id === baseId); type = 'expense'; action = 'income_expense'
-      if (item) form = { freq: 'monthly', kind: 'expense', name: item.name, amount: String(item.currency === 'USD' ? (item.usdAmount || '') : (item.amount || '')), chargeDay: item.chargeDay, accountId: item.accountId || '', destAccountId: item.destAccountId || '' }
+      if (item) form = { freq: 'monthly', kind: 'expense', name: item.name, amount: String(item.currency === 'USD' ? (item.usdAmount || '') : (item.amount || '')), chargeDay: item.chargeDay, accountId: item.accountId || '', destAccountId: item.destAccountId || '', eventDate: event.dateStr || '' }
     } else if (event.type === 'rental') {
       item = rentalIncome.find(r => r.id === baseId); type = 'rental'; action = 'income_expense'
-      if (item) form = { freq: 'monthly', kind: 'income', name: item.name, amount: String(item.usdAmount || item.amount || ''), chargeDay: item.chargeDay, accountId: item.accountId || '' }
+      if (item) form = { freq: 'monthly', kind: 'income', name: item.name, amount: String(item.usdAmount || item.amount || ''), chargeDay: item.chargeDay, accountId: item.accountId || '', eventDate: event.dateStr || '' }
     } else if (event.type === 'future') {
       item = futureIncome.find(f => f.id === baseId); type = 'future'
       if (item) {
@@ -1448,7 +1448,7 @@ export default function Dashboard() {
               <div className="px-4 py-2 text-xs text-gray-500 border-b border-gray-50">
                 {ev.name} — השינוי יחול על כל החיובים הבאים. היסטוריה קיימת לא משתנה.
               </div>
-              <div className="overflow-y-auto divide-y divide-gray-50">
+              <div className="overflow-y-auto divide-y divide-gray-50 scroll-right">
                 {list.length === 0 && (
                   <p className="px-4 py-6 text-center text-sm text-gray-400">אין חשבונות במטבע הזה</p>
                 )}
@@ -1660,6 +1660,11 @@ function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowA
               >
                 {isUSD ? usdDisplay : formatILS(event.amount, { signed: isIncome })}
               </button>
+            )}
+            {event.overrideVsBase && (
+              <p dir="ltr" className={`text-[10px] font-semibold mt-0.5 text-right ${event.overrideVsBase === 'higher' ? 'text-red-400' : 'text-green-500'}`}>
+                {event.overrideVsBase === 'higher' ? '↑' : '↓'} {formatILS(event.overrideBase)}
+              </p>
             )}
             {isUSD && event.usdDeductions && (
               <p className="text-xs">

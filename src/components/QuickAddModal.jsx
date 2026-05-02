@@ -77,6 +77,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
   const [saved, setSaved]   = useState(false)
   const [errors, setErrors] = useState([])
   const [permPrompt, setPermPrompt] = useState(null) // { applyPermanent, applyOneTime, name }
+  const [showDestAccount, setShowDestAccount] = useState(false)
 
   const fv = (key) => form[key] ?? ''
   const sv = (key, val) => { setForm(prev => ({ ...prev, [key]: val })); setErrors(prev => prev.filter(e => e !== key)) }
@@ -147,7 +148,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
           if (type === 'expense') {
             const metaUpd = { name: fv('name'), chargeDay: parseInt(fv('chargeDay')), accountId: fv('accountId') || null, destAccountId: fv('destAccountId') || null }
             if (amountChanged) {
-              const mKey = todayStr.slice(0, 7)
+              const mKey = (fv('eventDate') || todayStr).slice(0, 7)
               setPermPrompt({
                 name: item.name,
                 applyPermanent: () => {
@@ -167,7 +168,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
           } else if (type === 'rental') {
             const metaUpd = { name: fv('name'), chargeDay: parseInt(fv('chargeDay')), accountId: fv('accountId') || null }
             if (amountChanged) {
-              const mKey = todayStr.slice(0, 7)
+              const mKey = (fv('eventDate') || todayStr).slice(0, 7)
               setPermPrompt({
                 name: item.name,
                 applyPermanent: () => {
@@ -520,6 +521,21 @@ export default function QuickAddModal({ onClose, editTarget }) {
           </F>
           <F label={isMonthly ? `סכום חודשי (${currSymbol})` : `סכום (${currSymbol})`} name="amount" errors={errors}>
             <Inp err={e('amount')} type="number" value={fv('amount')} onChange={ev => sv('amount', ev.target.value)} />
+            {isEditMode && fv('eventDate') && (() => {
+              const mKey = fv('eventDate').slice(0, 7)
+              const itm = editTarget.item
+              const hasOverride = !isUSD && itm?.monthlyAmounts?.[mKey] != null
+              const effectiveAmt = isUSD
+                ? (itm?.usdAmount || 0)
+                : (hasOverride ? itm.monthlyAmounts[mKey] : (itm?.amount || 0))
+              const baseAmt = itm?.amount || 0
+              const color = !hasOverride ? 'text-gray-400'
+                : effectiveAmt > baseAmt ? 'text-red-400'
+                : effectiveAmt < baseAmt ? 'text-green-500'
+                : 'text-gray-400'
+              const monthName = new Date(mKey + '-15').toLocaleDateString('he-IL', { month: 'long' })
+              return <p className={`text-[11px] ${color} mt-1.5 text-right`}>{monthName} — {isUSD ? `$${effectiveAmt.toLocaleString()}` : `₪${effectiveAmt.toLocaleString()}`}</p>
+            })()}
           </F>
           {isMonthly ? (
             <F label="יום בחודש" name="chargeDay" errors={errors}>
@@ -530,24 +546,36 @@ export default function QuickAddModal({ onClose, editTarget }) {
               <MiniCalendar value={fv('date')} onChange={v => sv('date', v)} hasError={e('date')} />
             </F>
           )}
-          <F label={isIncome ? 'חשבון יעד' : 'חשבון מקור'} name="accountId" errors={errors}>
+          <F label={isIncome ? 'חשבון יעד' : 'חשבון חיוב'} name="accountId" errors={errors}>
             <Sel value={fv('accountId')} onChange={ev => sv('accountId', ev.target.value)}>
               <option value="">לא מקושר</option>
               {ilsAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </Sel>
           </F>
           {isMonthly && !isIncome && (
-            <F label="חשבון יעד — יזדכה בביצוע (אופציונלי)" name="destAccountId" errors={errors}>
-              <Sel value={fv('destAccountId')} onChange={ev => sv('destAccountId', ev.target.value)}>
-                <option value="">ללא</option>
-                <optgroup label="חשבונות בנק">
-                  {ilsAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </optgroup>
-                <optgroup label="השקעות">
-                  {investments.map(i => <option key={i.id} value={`inv:${i.id}`}>{i.name}</option>)}
-                </optgroup>
-              </Sel>
-            </F>
+            <>
+              <button
+                type="button"
+                onClick={() => setShowDestAccount(v => !v)}
+                className="text-xs text-gray-400 mb-3 flex items-center gap-1"
+              >
+                <span>{showDestAccount ? '▾' : '▸'}</span>
+                <span>חשבון יעד (אופציונלי)</span>
+              </button>
+              {showDestAccount && (
+                <F label="חשבון יעד — יזדכה בביצוע" name="destAccountId" errors={errors}>
+                  <Sel value={fv('destAccountId')} onChange={ev => sv('destAccountId', ev.target.value)}>
+                    <option value="">ללא</option>
+                    <optgroup label="חשבונות בנק">
+                      {ilsAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </optgroup>
+                    <optgroup label="השקעות">
+                      {investments.map(i => <option key={i.id} value={`inv:${i.id}`}>{i.name}</option>)}
+                    </optgroup>
+                  </Sel>
+                </F>
+              )}
+            </>
           )}
         </>)
       }
@@ -632,8 +660,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
       </>)
 
       case 'transfer': {
-        const from = accounts.find(a => a.id === fv('fromId'))
-        const compatible = fv('fromId') ? accounts.filter(a => a.id !== fv('fromId') && a.currency === (from?.currency || 'ILS')) : accounts
+        const compatible = fv('fromId') ? accounts.filter(a => a.id !== fv('fromId')) : accounts
         return (<>
           <F label="מחשבון" name="fromId" errors={errors}>
             <Sel err={e('fromId')} value={fv('fromId')} onChange={ev => { sv('fromId', ev.target.value); sv('toId', '') }}>
@@ -644,7 +671,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
           <F label="לחשבון" name="toId" errors={errors}>
             <Sel err={e('toId')} value={fv('toId')} onChange={ev => sv('toId', ev.target.value)}>
               <option value="">בחר</option>
-              {compatible.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              {compatible.map(a => <option key={a.id} value={a.id}>{a.name} ({a.currency === 'USD' ? `$${(a.usdBalance||0).toLocaleString()}` : `₪${(a.balance||0).toLocaleString()}`})</option>)}
             </Sel>
           </F>
           <F label="סכום" name="amount" errors={errors}>

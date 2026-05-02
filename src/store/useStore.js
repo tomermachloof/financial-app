@@ -49,6 +49,7 @@ const useStore = create(
       usdRate:         3.61,
       ratesLastFetched: null,
       lastSaved:       0,
+      deletedIds: { accounts: [], loans: [], expenses: [], futureIncome: [], rentalIncome: [], debts: [], investments: [] },
       discountTransferDone: [], // array of 'YYYY-MM' strings
       friendReminders: [],    // array of { loanId, monthKey, reminderSent, moneyReceived, _delta, _accountId }
       confirmDiscountTransfer: (monthKey) =>
@@ -88,7 +89,7 @@ const useStore = create(
       addAccount: (account) =>
         set(s => ({ accounts: [...s.accounts, { ...account, id: 'ba' + Date.now() }] })),
       deleteAccount: (id) =>
-        set(s => ({ accounts: s.accounts.filter(a => a.id !== id) })),
+        set(s => ({ accounts: s.accounts.filter(a => a.id !== id), deletedIds: { ...s.deletedIds, accounts: [...(s.deletedIds?.accounts || []), id] } })),
 
       // ── Investments ───────────────────────────
       updateInvestment: (id, updates) =>
@@ -96,7 +97,7 @@ const useStore = create(
       addInvestment: (inv) =>
         set(s => ({ investments: [...s.investments, { ...inv, id: 'inv' + Date.now() }] })),
       deleteInvestment: (id) =>
-        set(s => ({ investments: s.investments.filter(i => i.id !== id) })),
+        set(s => ({ investments: s.investments.filter(i => i.id !== id), deletedIds: { ...s.deletedIds, investments: [...(s.deletedIds?.investments || []), id] } })),
 
       // ── Loans ─────────────────────────────────
       updateLoan: (id, updates) =>
@@ -145,6 +146,7 @@ const useStore = create(
                 : { ...a, balance: (a.balance || 0) - loan.totalAmount }
             )
           }
+          newState.deletedIds = { ...s.deletedIds, loans: [...(s.deletedIds?.loans || []), id] }
           return newState
         }),
 
@@ -170,11 +172,11 @@ const useStore = create(
       deleteExpense: (id) =>
         set(s => ({
           expenses: s.expenses.filter(e => e.id !== id),
-          // Hygiene: drop any lingering confirmedEvents entries pointing at this id
           confirmedEvents: (s.confirmedEvents || []).filter(e => {
             const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
             return bare !== id
           }),
+          deletedIds: { ...s.deletedIds, expenses: [...(s.deletedIds?.expenses || []), id] },
         })),
 
       // ── Rental Income ─────────────────────────
@@ -203,6 +205,7 @@ const useStore = create(
             const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
             return bare !== id
           }),
+          deletedIds: { ...s.deletedIds, rentalIncome: [...(s.deletedIds?.rentalIncome || []), id] },
         })),
 
       // ── Future Income ─────────────────────────
@@ -223,6 +226,7 @@ const useStore = create(
             const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
             return bare !== id
           }),
+          deletedIds: { ...s.deletedIds, futureIncome: [...(s.deletedIds?.futureIncome || []), id] },
         })),
       markIncomeReceived: (id, accountId) =>
         set(s => {
@@ -362,6 +366,12 @@ const useStore = create(
           const sessions = (f.sessions || []).filter(ws => ws.id !== sessionId)
           return { ...f, sessions, amount: sessions.reduce((sum, ws) => sum + (ws.amount || 0), 0) }
         })})),
+      updateWorkSession: (incomeId, sessionId, updates) =>
+        set(s => ({ futureIncome: s.futureIncome.map(f => {
+          if (f.id !== incomeId) return f
+          const sessions = (f.sessions || []).map(ws => ws.id === sessionId ? { ...ws, ...updates } : ws)
+          return { ...f, sessions, amount: sessions.reduce((sum, ws) => sum + (ws.amount || 0), 0) }
+        })})),
 
       // ── Debts ─────────────────────────────────
       updateDebt: (id, updates) =>
@@ -369,7 +379,7 @@ const useStore = create(
       addDebt: (debt) =>
         set(s => ({ debts: [...s.debts, { ...debt, id: 'd' + Date.now() }] })),
       deleteDebt: (id) =>
-        set(s => ({ debts: s.debts.filter(d => d.id !== id) })),
+        set(s => ({ debts: s.debts.filter(d => d.id !== id), deletedIds: { ...s.deletedIds, debts: [...(s.deletedIds?.debts || []), id] } })),
 
       // ── Dismissed Events (hidden from today without deleting) ────────────
       dismissedEvents: [], // [{ id, date }]

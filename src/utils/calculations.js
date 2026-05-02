@@ -418,6 +418,14 @@ export const getUpcomingEvents = (loans, expenses, rentalIncome, futureIncome, d
             }
           }
           const event = { id: item.id + suffix, name: item.name, amount: eventAmount, date: d, type, color }
+          if (monthlyOverride && !isUSD && item.monthlyAmounts?.[mKey] != null) {
+            const ovr = item.monthlyAmounts[mKey]
+            const baseAmt = isLoan ? totalPay : (item.amount || 0)
+            if (ovr !== baseAmt) {
+              event.overrideVsBase = ovr > baseAmt ? 'higher' : 'lower'
+              event.overrideBase   = baseAmt
+            }
+          }
           if (isUSD) {
             event.usdAmount = eventUsdAmount
             event.currency = 'USD'

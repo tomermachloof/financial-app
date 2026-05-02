@@ -1,0 +1,45 @@
+name: Bank Sync — Hapoalim
+
+on:
+  schedule:
+    # 03:00 UTC = 06:00 Israel (קיץ) / 05:00 Israel (חורף) — לפני ההתראה של 07:00
+    - cron: '0 3 * * *'
+  workflow_dispatch: # ניתן להפעלה ידנית מ-GitHub
+
+jobs:
+  hapoalim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (no Chrome download)
+        run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+      - name: Run Hapoalim scraper
+        id: scrape
+        env:
+          HAPOALIM_USER: ${{ secrets.HAPOALIM_USER }}
+          HAPOALIM_PASS: ${{ secrets.HAPOALIM_PASS }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome-stable
+        run: node scrape-hapoalim.mjs
+
+      - name: Alert on failure
+        if: failure()
+        run: |
+          curl -s -X POST "${{ secrets.WORKER_ALERT_URL }}/alert" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.WORKER_SECRET }}" \
+            -d '{"title":"⚠️ סנכרון בנק נכשל","message":"סנכרון פועלים נכשל הלילה. כנס ל-GitHub Actions לראות את הסיבה."}'

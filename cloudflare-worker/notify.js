@@ -62,6 +62,33 @@ export default {
       }
     }
 
+    // ── התראה ידנית (מ-GitHub Actions או כל מקור חיצוני) ──
+    if (url.pathname === '/alert' && request.method === 'POST') {
+      const authHeader = request.headers.get('Authorization') || ''
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim()
+      if (!env.WORKER_SECRET || token !== env.WORKER_SECRET) {
+        return new Response('unauthorized', { status: 401, headers: cors })
+      }
+      try {
+        const { title = '⚠️ התראת מערכת', message } = await request.json()
+        if (!message) return new Response('missing message', { status: 400, headers: cors })
+        await sendAlertNotification(env, title, message)
+        return new Response('ok', { status: 200, headers: cors })
+      } catch (err) {
+        return new Response('error: ' + (err && err.message || String(err)), { status: 500, headers: cors })
+      }
+    }
+
+    // ── בדיקת מייל בלבד ──
+    if (url.pathname === '/test-email') {
+      try {
+        await sendEmailFallback(env, '🧪 בדיקת מייל', 'אם הגעת לכאן — המייל עובד.')
+        return new Response('email sent', { status: 200, headers: cors })
+      } catch (err) {
+        return new Response('email error: ' + (err && err.message || String(err)), { status: 500, headers: cors })
+      }
+    }
+
     // ── בדיקת התראות (ידני) ──
     if (url.pathname === '/test') {
       try {
@@ -124,8 +151,8 @@ function labelFor(e) {
 // Walks month by month from (today - daysBack) up to today, generating one event per
 // recurring item per month (respecting loan startDate/durationMonths), plus one-time
 // pending futureIncome items. Reminders are NOT included here — they are handled separately.
-function getEvents(loans, expenses, rentalIncome, futureIncome, todayStr, daysBack) {
-  const today     = new Date(todayStr + 'T00:00:00')
+function getEvents(loans, expenses, rentalIncome, futureIncome, todayStr, daysBack, realTodayStr) {
+  const today     = new Date((realTodayStr || todayStr) + 'T00:00:00')
   const startFrom = new Date(today);      startFrom.setDate(startFrom.getDate() - daysBack)
   const limit     = new Date(today)       // today-inclusive, no forward lookup
 
@@ -230,7 +257,14 @@ async function sendDailyNotification(env) {
   // New storage — an array under id='push_subscriptions'
   const multiRes = await fetchSupabase(env, 'app_state?id=eq.push_subscriptions&select=state')
   if (multiRes.ok && multiRes.data.length > 0 && Array.isArray(multiRes.data[0].state)) {
-    subscriptions = multiRes.data[0].state.filter(Boolean)
+    const all = multiRes.data[0].state.filter(Boolean)
+    // מגבלת Cloudflare: מקסימום 50 subrequests. אם יש יותר subscriptions — כולן ישנות/פגות, דלג ישר למייל.
+    subscriptions = all.length <= 10 ? all : []
+    if (all.length > 10) {
+      console.log(`Skipping ${all.length} stale subscriptions — using email`)
+      // נקה את הרשימה הישנה מהבסיס
+      await upsertSupabase(env, 'push_subscriptions', [])
+    }
   }
 
   // Legacy storage — a single subscription under id='push_subscription'
@@ -241,18 +275,13 @@ async function sendDailyNotification(env) {
     }
   }
 
-  if (subscriptions.length === 0) {
-    console.log('No push subscriptions found — skipping')
-    return
-  }
-
   // ── 2. Read app state ────────────────────────────────────────
-  const stateRes = await fetchSupabase(env, 'app_state?id=eq.main&select=state')
+  const stateRes = await fetchSupabase(env, 'app_state?id=eq.main&select=state_v2')
   if (!stateRes.ok || stateRes.data.length === 0) {
     console.log('No app state found — skipping')
     return
   }
-  const state = stateRes.data[0].state
+  const state = stateRes.data[0].state_v2
 
   // ── 3. Set up Israel-local "today" ───────────────────────────
   const now = new Date()
@@ -286,7 +315,7 @@ async function sendDailyNotification(env) {
   // month-by-month walk calculations.js uses, then split into:
   //   - today's events (detailed list)
   //   - past events still waiting for confirmation (just a count)
-  const allEvents = getEvents(loans, expenses, rentalIncome, futureIncome, todayStr, 31)
+  const allEvents = getEvents(loans, expenses, rentalIncome, futureIncome, todayStr, 31, realTodayStr)
 
   const todayItems   = []
   let   overdueCount = 0
@@ -348,6 +377,16 @@ async function sendDailyNotification(env) {
   const body = todayLines.join('\n') + '\n\n' + overdueLine
 
   // ── 7. Send push to every registered device (with retry) ────
+  if (subscriptions.length === 0) {
+    console.log('No push subscriptions — sending email directly')
+    await sendEmailFallback(env, title, body)
+    await upsertSupabase(env, 'notification_log', {
+      date: realTodayStr, sent: 0, dead: 0, errors: 0, errorDetails: 'no subscriptions — email sent',
+      todayEvents: todayItems.length, overdueEvents: overdueCount,
+    })
+    return
+  }
+
   const vapid = {
     subject:    env.VAPID_SUBJECT,
     publicKey:  env.VAPID_PUBLIC_KEY,
@@ -428,33 +467,64 @@ async function sendDailyNotification(env) {
   }
 }
 
+// ── שליחת התראה ידנית לכל המכשירים ────────────────────────────
+async function sendAlertNotification(env, title, body) {
+  let subscriptions = []
+
+  const multiRes = await fetchSupabase(env, 'app_state?id=eq.push_subscriptions&select=state')
+  if (multiRes.ok && multiRes.data.length > 0 && Array.isArray(multiRes.data[0].state)) {
+    const all = multiRes.data[0].state.filter(Boolean)
+    subscriptions = all.length <= 10 ? all : []
+  }
+
+  if (subscriptions.length === 0) {
+    await sendEmailFallback(env, title, body)
+    return
+  }
+
+  const vapid = {
+    subject:    env.VAPID_SUBJECT,
+    publicKey:  env.VAPID_PUBLIC_KEY,
+    privateKey: env.VAPID_PRIVATE_KEY,
+  }
+  const message = {
+    data: JSON.stringify({ title, body, url: APP_URL }),
+    options: { ttl: 60 * 60 * 24 },
+  }
+
+  for (const sub of subscriptions) {
+    if (!sub?.endpoint) continue
+    try {
+      const payload = await buildPushPayload(message, sub, vapid)
+      await fetch(sub.endpoint, payload)
+    } catch (e) {
+      console.warn('Alert push failed:', e.message)
+    }
+  }
+}
+
 // ── email fallback via Resend ─────────────────────────────────
 
 async function sendEmailFallback(env, title, body) {
-  try {
-    const htmlBody = body.split('\n').map(line => line ? `<p style="margin:4px 0">${line}</p>` : '<br>').join('')
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'onboarding@resend.dev',
-        to: 'tomermachluf@gmail.com',
-        subject: title,
-        html: `<div dir="rtl" style="font-family:sans-serif;font-size:16px">${htmlBody}</div>`,
-      }),
-    })
-    if (res.ok) {
-      console.log('Email fallback sent successfully')
-    } else {
-      const text = await res.text()
-      console.error('Email fallback failed:', res.status, text)
-    }
-  } catch (err) {
-    console.error('Email fallback error:', err.message)
+  const htmlBody = (body || '').split('\n').map(line => line ? `<p style="margin:4px 0">${line}</p>` : '<br>').join('')
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: 'onboarding@resend.dev',
+      to: 'tomermachluf@gmail.com',
+      subject: title || '(no title)',
+      html: `<div dir="rtl" style="font-family:sans-serif;font-size:16px">${htmlBody}</div>`,
+    }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Resend ${res.status}: ${text}`)
   }
+  console.log('Email sent successfully')
 }
 
 // ── helpers ───────────────────────────────────────────────────

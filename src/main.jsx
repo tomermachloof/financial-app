@@ -179,13 +179,21 @@ Promise.race([loadState(), timeout]).then(cloudState => {
       // Strategy: keep cloud version for existing ids (cloud is newer), and
       // append any local items whose id does not exist in cloud at all.
       const mergeById = (key) => {
-        const cloudArr = Array.isArray(patched[key]) ? patched[key] : []
-        const localArr = Array.isArray(local[key])   ? local[key]   : []
-        const cloudSet = new Set(cloudArr.map(x => x?.id).filter(Boolean))
-        const orphans  = localArr.filter(x => x?.id && !cloudSet.has(x.id))
+        const cloudArr  = Array.isArray(patched[key]) ? patched[key] : []
+        const localArr  = Array.isArray(local[key])   ? local[key]   : []
+        const cloudSet  = new Set(cloudArr.map(x => x?.id).filter(Boolean))
+        // IDs deleted on any device — never resurrect these
+        const localDeleted = new Set((local.deletedIds?.[key]  || []))
+        const cloudDeleted = new Set((patched.deletedIds?.[key] || []))
+        const allDeleted   = new Set([...localDeleted, ...cloudDeleted])
+        const orphans = localArr.filter(x => x?.id && !cloudSet.has(x.id) && !allDeleted.has(x.id))
         if (orphans.length > 0) {
           console.warn(`[Sync] rescued ${orphans.length} local ${key} item(s) not yet in cloud`)
           patched[key] = [...cloudArr, ...orphans]
+        }
+        // Merge deletedIds so all devices accumulate the full deleted list
+        if (allDeleted.size > 0) {
+          patched.deletedIds = { ...(patched.deletedIds || {}), [key]: [...allDeleted] }
         }
       }
       mergeById('accounts')

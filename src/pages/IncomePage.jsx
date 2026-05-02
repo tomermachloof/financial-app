@@ -183,6 +183,10 @@ const EMPTY_NEW_SESS = {
   setLocation: '',
   setDistanceKm: null,
   setIsAboveThreshold: null,
+  // Rehearsal / fitting location (film type)
+  rehearsalLocation: '',
+  // Dubbing location (studio name)
+  dubbingLocation: '',
   // Theater fields
   theaterLocation: '',
   theaterMonth: '',
@@ -226,14 +230,15 @@ const formatSessionDetail = (ws) => {
         parts.push(`${ws.workHours} שעות${travel}`)
       }
     }
-    if (ws.manualMode) parts.push('סכום ידני')
+
     return parts.length > 0 ? parts.join(' · ') : '—'
   }
   if (ws.type === 'חזרות' || ws.type === 'מדידות') {
     const parts = []
+    if (ws.rehearsalLocation) parts.push(`📍 ${ws.rehearsalLocation}`)
     if (timeStr) parts.push(timeStr)
     if (ws.hours != null && ws.hours !== '') parts.push(`${ws.hours} שעות`)
-    if (ws.manualMode) parts.push('סכום ידני')
+
     return parts.length > 0 ? parts.join(' · ') : '—'
   }
   // Theater types
@@ -241,14 +246,19 @@ const formatSessionDetail = (ws) => {
     const parts = []
     if (ws.theaterLocation) parts.push(`📍 ${ws.theaterLocation}`)
     if (timeStr) parts.push(timeStr)
-    if (ws.manualMode) parts.push('סכום ידני')
+
     return parts.length > 0 ? parts.join(' · ') : 'הצגה'
   }
-  if (ws.type === 'חזרות חודשיות') return ws.theaterMonth || 'חודש'
+  if (ws.type === 'חזרות חודשיות') {
+    const parts = []
+    if (ws.theaterLocation) parts.push(`📍 ${ws.theaterLocation}`)
+    parts.push(ws.theaterMonth || 'חודש')
+    return parts.join(' · ')
+  }
   if (ws.type === 'חזרה אחרי עלייה' || ws.type === 'חזרת רענון' || ws.type === 'חזרת מקומים באולם חדש' || ws.type === 'חזרת טקסט' || ws.type === 'צילומי טריילר' || ws.type === 'צילומי הצגה') {
     const parts = []
     if (timeStr) parts.push(timeStr)
-    if (ws.manualMode) parts.push('סכום ידני')
+
     return parts.length > 0 ? parts.join(' · ') : ws.type
   }
   // Commercial types
@@ -256,15 +266,17 @@ const formatSessionDetail = (ws) => {
     const parts = []
     if (timeStr) parts.push(timeStr)
     if (ws.commercialNote) parts.push(ws.commercialNote)
-    if (ws.manualMode) parts.push('סכום ידני')
+
     return parts.length > 0 ? parts.join(' · ') : COMMERCIAL_TYPE_LABELS[ws.type]
   }
   // Dubbing
-  if (ws.dubbingStart && ws.dubbingEnd) {
-    const parts = [`${ws.dubbingStart}–${ws.dubbingEnd}`]
+  if (['הקלטה', 'השלמה', 'טריילר', 'סרט'].includes(ws.type)) {
+    const parts = []
+    if (ws.dubbingLocation) parts.push(`📍 ${ws.dubbingLocation}`)
+    if (ws.dubbingStart && ws.dubbingEnd) parts.push(`${ws.dubbingStart}–${ws.dubbingEnd}`)
     if (ws.dubbingHours) parts.push(`${ws.dubbingHours} שעות`)
-    if (ws.manualMode) parts.push('סכום ידני')
-    return parts.join(' · ')
+
+    return parts.length > 0 ? parts.join(' · ') : ws.type
   }
   // Lecture
   if (ws.type === 'הרצאה') {
@@ -350,14 +362,14 @@ const COMMERCIAL_TYPE_LABELS = {
   'עריכה / פוסט': '✂️ עריכה / פוסט',
   'העלאת תוכן': '📤 העלאת תוכן',
 }
-const EMPTY_SESSION = { type: 'יום צילום', date: '', amount: '', notes: '' }
+const EMPTY_SESSION = { type: 'יום צילום', date: '', amount: '', notes: '', location: '' }
 
 export default function IncomePage() {
   const {
     accounts,
     futureIncome, addFutureIncome, updateFutureIncome, deleteFutureIncome,
     markIncomeReceived, markIncomePending,
-    addWorkSession, deleteWorkSession,
+    addWorkSession, deleteWorkSession, updateWorkSession,
     bubbleIncomeToTop,
     removeIncomePayment, confirmedEvents,
   } = useStore()
@@ -369,6 +381,7 @@ export default function IncomePage() {
   ]
 
   const [modal,        setModal]      = useState(null)
+  const [viewingFile,  setViewingFile] = useState(null)
   const [form,         setForm]       = useState(EMPTY_INCOME)
   const [filter,       setFilter]     = useState('pending')
   const [ownerFilter,  setOwnerFilter] = useState('all') // 'all' | 'tomer' | 'yael'
@@ -615,6 +628,7 @@ export default function IncomePage() {
         photoDayRateUsed: rate,
         pct12Used:     Number(form.rehearsalPct12) || 15,
         pct3plusUsed:  Number(form.rehearsalPct3plus) || 30,
+        rehearsalLocation: newSess.rehearsalLocation || null,
         manualMode: !!newSess.manualMode,
         manualAmount: newSess.manualMode ? (Number(newSess.manualAmount) || 0) : null,
         amount: finalAmt,
@@ -629,6 +643,7 @@ export default function IncomePage() {
         type: t,
         date: newSess.date || null,
         theaterMonth: newSess.theaterMonth || null,
+        theaterLocation: newSess.theaterLocation || null,
         amount: finalAmt,
       }
     }
@@ -682,6 +697,7 @@ export default function IncomePage() {
         dubbingEnd: newSess.dubbingEnd || null,
         dubbingHours: h,
         dubbingHasSong: hasSong,
+        dubbingLocation: newSess.dubbingLocation || null,
         dubbingFirstHourRateUsed: firstHR,
         dubbingHalfHourRateUsed: halfHR,
         dubbingSongBonusUsed: songB,
@@ -692,7 +708,7 @@ export default function IncomePage() {
     }
     // טריילר — ₪200 קבוע
     if (form.projectType === 'dubbing' && t === 'טריילר') {
-      return { id, type: t, date: newSess.date || null, amount: 200 }
+      return { id, type: t, date: newSess.date || null, dubbingLocation: newSess.dubbingLocation || null, amount: 200 }
     }
     // סרט — שעות × ₪166
     if (form.projectType === 'dubbing' && t === 'סרט') {
@@ -707,6 +723,7 @@ export default function IncomePage() {
         dubbingStart: newSess.dubbingStart || null,
         dubbingEnd: newSess.dubbingEnd || null,
         dubbingHours: h,
+        dubbingLocation: newSess.dubbingLocation || null,
         manualMode: !!newSess.manualMode,
         manualAmount: newSess.manualMode ? (Number(newSess.manualAmount) || 0) : null,
         amount: finalAmt,
@@ -802,6 +819,8 @@ export default function IncomePage() {
       setLocation: ws.setLocation || '',
       setDistanceKm: ws.setDistanceKm ?? null,
       setIsAboveThreshold: ws.setIsAboveThreshold ?? null,
+      rehearsalLocation: ws.rehearsalLocation || '',
+      dubbingLocation: ws.dubbingLocation || '',
       theaterLocation: ws.theaterLocation || '',
       theaterMonth: ws.theaterMonth || '',
       commercialNote: ws.commercialNote || '',
@@ -879,15 +898,36 @@ export default function IncomePage() {
 
   // ── Work log ──
   const openWorkLog  = (item, e) => { e.stopPropagation(); setWorkModal({ item }); setSessForm(EMPTY_SESSION) }
-  const closeWorkLog = () => setWorkModal(null)
+  const closeWorkLog = () => { setWorkModal(null); setEditingWsId(null) }
+
+  const [editingWsId,  setEditingWsId]  = useState(null)
+  const [editWsForm,   setEditWsForm]   = useState({})
+
+  const startEditWs = (ws) => { setEditingWsId(ws.id); setEditWsForm({ type: ws.type, date: ws.date || '', amount: String(ws.amount), notes: ws.notes || '', location: ws.location || '' }) }
+  const cancelEditWs = () => setEditingWsId(null)
+  const saveEditWs = () => {
+    if (!editWsForm.amount) return
+    updateWorkSession(workModal.item.id, editingWsId, { type: editWsForm.type, date: editWsForm.date || null, amount: Number(editWsForm.amount), notes: editWsForm.notes, location: editWsForm.location || null })
+    setEditingWsId(null)
+  }
+
+  const getWorklogSessionTypes = (item) => {
+    const pt = item?.projectType
+    if (pt === 'commercial') return COMMERCIAL_SESSION_TYPES
+    if (pt === 'theater')    return THEATER_SESSION_TYPES
+    if (pt === 'dubbing')    return DUBBING_SESSION_TYPES
+    if (pt === 'lecture')    return LECTURE_SESSION_TYPES
+    return FILM_SESSION_TYPES
+  }
 
   const saveSession = () => {
     if (!sessForm.amount) return
     addWorkSession(workModal.item.id, {
-      type:   sessForm.type,
-      date:   sessForm.date || null,
-      amount: Number(sessForm.amount),
-      notes:  sessForm.notes,
+      type:     sessForm.type,
+      date:     sessForm.date || null,
+      amount:   Number(sessForm.amount),
+      notes:    sessForm.notes,
+      location: sessForm.location || null,
     })
     setSessForm(EMPTY_SESSION)
   }
@@ -898,6 +938,27 @@ export default function IncomePage() {
   const workItem = workModal
     ? futureIncome.find(f => f.id === workModal.item.id)
     : null
+
+  if (viewingFile) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#000', display: 'flex', flexDirection: 'column', height: '100dvh' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', background: '#1f2937', flexShrink: 0 }}>
+          <span style={{ color: 'white', fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{viewingFile.name}</span>
+          <button onClick={() => setViewingFile(null)} style={{ color: 'white', fontSize: '24px', padding: '0 8px', flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+        </div>
+        {viewingFile.isImage
+          ? <img src={viewingFile.url} style={{ flex: 1, objectFit: 'contain', width: '100%', height: 0, minHeight: 0 }} alt={viewingFile.name} />
+          : <div style={{ flex: 1, overflow: 'hidden', position: 'relative', height: 0, minHeight: 0 }}>
+              <iframe
+                src={viewingFile.url}
+                style={{ position: 'absolute', top: 0, left: 0, width: '200%', height: '200%', border: 'none', transform: 'scale(0.5)', transformOrigin: '0 0' }}
+                title={viewingFile.name}
+              />
+            </div>
+        }
+      </div>
+    )
+  }
 
   return (
     <div className="page-content">
@@ -1201,9 +1262,9 @@ export default function IncomePage() {
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${isInvoice ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
                                 {isInvoice ? 'חשבונית' : 'פירוט תשלום'}
                               </span>
-                              <a href={f.file} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline truncate">
+                              <button type="button" onClick={() => setViewingFile({ url: f.file, name: f.fileName, isImage: (f.file || '').startsWith('data:image/') })} className="text-xs text-blue-600 underline truncate text-right">
                                 {f.fileName}
-                              </a>
+                              </button>
                               {f.uploadedAt && <span className="text-[10px] text-gray-400 shrink-0">{formatDate(f.uploadedAt)}</span>}
                             </div>
                             <button type="button" onClick={() => removeFile(f.id)} className="text-red-400 text-xs px-1.5 hover:bg-red-50 rounded shrink-0">✕</button>
@@ -1387,7 +1448,7 @@ export default function IncomePage() {
                   <Input type="number" value={form.theaterPostRehearsal} onChange={v => set('theaterPostRehearsal', v)} placeholder="0" />
                 </Field>
               </div>
-            ) : (
+            ) : form.projectType !== 'lecture' ? (
               <div className="bg-indigo-50 rounded-xl p-3 space-y-3">
                 <Field label="תעריף יום צילום (₪)" hint="משמש בסיס לחישוב חזרות, מדידות ושעות נוספות">
                   <Input type="number" value={form.photoDayRate} onChange={v => set('photoDayRate', v)} placeholder="0" />
@@ -1444,7 +1505,7 @@ export default function IncomePage() {
                   >+ הוסף מדרגה</button>
                 </div>
               </div>
-            )}
+            ) : null}
             </>
             )}
           </div>
@@ -1724,6 +1785,9 @@ export default function IncomePage() {
                 const canAdd = newSess.manualMode ? newSess.manualAmount !== '' : finalAmt > 0
                 return (
                   <>
+                    <Field label="מיקום">
+                      <Input value={newSess.rehearsalLocation} onChange={v => setNewSess(s => ({ ...s, rehearsalLocation: v }))} placeholder="שם מקום / אולם / סטודיו..." />
+                    </Field>
                     <div className="bg-white rounded-lg p-2 space-y-2">
                       <p className="text-xs text-gray-500 font-medium">שעות חזרה (לחישוב)</p>
                       <div className="grid grid-cols-2 gap-2" dir="rtl">
@@ -1816,6 +1880,9 @@ export default function IncomePage() {
                   <>
                     <Field label="חודש">
                       <Input type="month" value={newSess.theaterMonth} onChange={v => setNewSess(s => ({ ...s, theaterMonth: v }))} />
+                    </Field>
+                    <Field label="מיקום">
+                      <Input value={newSess.theaterLocation} onChange={v => setNewSess(s => ({ ...s, theaterLocation: v }))} placeholder="שם התיאטרון / עיר" />
                     </Field>
                     <Field label="סכום שהתקבל (₪)">
                       <Input type="number" value={newSess.manualAmount} onChange={v => setNewSess(s => ({ ...s, manualAmount: v }))} placeholder="0" />
@@ -2008,6 +2075,9 @@ export default function IncomePage() {
                 const computed = h > 0 ? computeDubbingAmount(h, firstHR, halfHR, hasSong, songB) : 0
                 return (
                   <>
+                    <Field label="מיקום (סטודיו)">
+                      <Input value={newSess.dubbingLocation} onChange={v => setNewSess(s => ({ ...s, dubbingLocation: v }))} placeholder="שם הסטודיו / עיר..." />
+                    </Field>
                     <div className="bg-white rounded-lg p-2 space-y-2">
                       <p className="text-xs text-gray-500 font-medium">שעות הקלטה</p>
                       <div className="grid grid-cols-2 gap-2" dir="rtl">
@@ -2082,6 +2152,9 @@ export default function IncomePage() {
               {/* ═══ Dubbing: טריילר ═══ */}
               {form.projectType === 'dubbing' && newSess.type === 'טריילר' && (
                 <>
+                  <Field label="מיקום (סטודיו)">
+                    <Input value={newSess.dubbingLocation} onChange={v => setNewSess(s => ({ ...s, dubbingLocation: v }))} placeholder="שם הסטודיו / עיר..." />
+                  </Field>
                   <div className="bg-pink-100 rounded-xl p-3">
                     <div className="flex justify-between text-sm">
                       <span className="font-semibold text-gray-700">סה״כ</span>
@@ -2110,6 +2183,9 @@ export default function IncomePage() {
                 const canAdd = newSess.manualMode ? finalAmt > 0 : h > 0
                 return (
                   <>
+                    <Field label="מיקום (סטודיו)">
+                      <Input value={newSess.dubbingLocation} onChange={v => setNewSess(s => ({ ...s, dubbingLocation: v }))} placeholder="שם הסטודיו / עיר..." />
+                    </Field>
                     <div className="bg-white rounded-lg p-2 space-y-2">
                       <p className="text-xs text-gray-500 font-medium">שעות הקלטה</p>
                       <div className="grid grid-cols-2 gap-2" dir="rtl">
@@ -2408,23 +2484,54 @@ export default function IncomePage() {
           {(workItem.sessions || []).length > 0 && (
             <div className="divide-y divide-gray-100 mb-3 rounded-xl overflow-hidden border border-gray-100">
               {(workItem.sessions || []).map(ws => (
-                <div key={ws.id} className="flex items-center justify-between px-3 py-2.5 bg-white">
-                  <div>
-                    <p className="text-sm font-medium text-gray-800">{ws.type}</p>
-                    <p className="text-xs text-gray-400">
-                      {ws.date ? formatDate(ws.date) : 'ללא תאריך'}
-                      {ws.notes ? ` · ${ws.notes}` : ''}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-green-600">{formatILS(ws.amount)}</span>
-                    <button
-                      onClick={() => { if (window.confirm('למחוק את הרישום?')) deleteWorkSession(workItem.id, ws.id) }}
-                      className="text-red-400 text-xs px-1.5 py-0.5 hover:bg-red-50 rounded"
-                    >
-                      ✕
-                    </button>
-                  </div>
+                <div key={ws.id} className="bg-white">
+                  {editingWsId === ws.id ? (
+                    <div className="px-3 py-2.5 space-y-2">
+                      <Field label="סוג">
+                        <Select value={editWsForm.type} onChange={v => setEditWsForm(f => ({ ...f, type: v }))} options={getWorklogSessionTypes(workItem)} />
+                      </Field>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Field label="תאריך">
+                          <Input type="date" value={editWsForm.date} onChange={v => setEditWsForm(f => ({ ...f, date: v }))} />
+                        </Field>
+                        <Field label="סכום (₪)">
+                          <Input type="number" value={editWsForm.amount} onChange={v => setEditWsForm(f => ({ ...f, amount: v }))} />
+                        </Field>
+                      </div>
+                      <Field label="מיקום">
+                        <Input value={editWsForm.location} onChange={v => setEditWsForm(f => ({ ...f, location: v }))} placeholder="שם מקום / אולם..." />
+                      </Field>
+                      <Field label="הערות">
+                        <Input value={editWsForm.notes} onChange={v => setEditWsForm(f => ({ ...f, notes: v }))} placeholder="פירוט..." />
+                      </Field>
+                      <div className="flex gap-2">
+                        <button onClick={saveEditWs} className="flex-1 bg-green-600 text-white text-sm font-semibold py-2 rounded-xl">שמור</button>
+                        <button onClick={cancelEditWs} className="flex-1 bg-gray-100 text-gray-600 text-sm font-semibold py-2 rounded-xl">ביטול</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between px-3 py-2.5">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">{ws.type}</p>
+                        <p className="text-xs text-gray-400">
+                          {ws.date ? formatDate(ws.date) : 'ללא תאריך'}
+                          {ws.location ? ` · 📍 ${ws.location}` : ''}
+                          {ws.notes ? ` · ${ws.notes}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-green-600">{formatILS(ws.amount)}</span>
+                        <button
+                          onClick={() => startEditWs(ws)}
+                          className="text-blue-400 text-xs px-1.5 py-0.5 hover:bg-blue-50 rounded"
+                        >✏</button>
+                        <button
+                          onClick={() => { if (window.confirm('למחוק את הרישום?')) deleteWorkSession(workItem.id, ws.id) }}
+                          className="text-red-400 text-xs px-1.5 py-0.5 hover:bg-red-50 rounded"
+                        >✕</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -2434,7 +2541,7 @@ export default function IncomePage() {
           <div className="border-t border-gray-100 pt-3">
             <p className="text-xs font-semibold text-gray-500 mb-2">+ הוסף רישום</p>
             <Field label="סוג">
-              <Select value={sessForm.type} onChange={v => setS('type', v)} options={SESSION_TYPES} />
+              <Select value={sessForm.type} onChange={v => setS('type', v)} options={getWorklogSessionTypes(workItem)} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="תאריך">
@@ -2444,6 +2551,9 @@ export default function IncomePage() {
                 <Input type="number" value={sessForm.amount} onChange={v => setS('amount', v)} placeholder="0" />
               </Field>
             </div>
+            <Field label="מיקום">
+              <Input value={sessForm.location} onChange={v => setS('location', v)} placeholder="שם מקום / אולם..." />
+            </Field>
             <Field label="הערות">
               <Input value={sessForm.notes} onChange={v => setS('notes', v)} placeholder="פירוט..." />
             </Field>
@@ -2491,6 +2601,9 @@ function IncomeCard({ item, onEdit, onReceive, onUndo, onWorkLog, onClose, onReo
     >
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
+          <p className={`text-[10px] font-medium mb-0.5 ${hasGradient ? 'text-white opacity-70' : 'text-gray-400'}`}>
+            {item.isPayment ? 'תשלום' : item.projectType === 'commercial' ? 'מסחרי' : item.projectType === 'theater' ? 'תיאטרון' : item.projectType === 'dubbing' ? 'דיבוב' : item.projectType === 'lecture' ? 'הרצאה' : 'קולנוע / טלוויזיה'}
+          </p>
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className={`font-semibold ${isReceived ? 'text-gray-400 line-through' : hasGradient ? 'text-white' : 'text-gray-800'}`}>
               {item.name}
