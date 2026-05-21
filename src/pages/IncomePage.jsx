@@ -10,6 +10,15 @@ import { calcDistanceFromHome } from '../lib/distanceCalc'
 import { analyzeContractDoc } from '../lib/analyzeContractDoc'
 import { formatILS, formatDate, daysUntil, urgencyClass, urgencyLabel } from '../utils/formatters'
 
+// ── Ka-ching coin sound ──────────────────────────────────────────────
+function playKaching() {
+  try {
+    const audio = new Audio(import.meta.env.BASE_URL + 'sounds/ksjsbwuil-cash-register-1-513922.mp3')
+    audio.volume = 1.0
+    audio.play().catch(() => {})
+  } catch {}
+}
+
 // ── Helpers: time and amount calculations ────────────────────────────
 
 // Round up to nearest quarter hour (0.25). 10.1 → 10.25, 10.26 → 10.5
@@ -204,6 +213,8 @@ const EMPTY_NEW_SESS = {
   lectureLocation: '',
   lectureClient: '',
   lectureInvoiceReceived: false,
+  // per-session note
+  notes: '',
 }
 const unitLabel = t => t === 'יום צילום' ? 'ימים' : 'שעות'
 
@@ -397,6 +408,7 @@ export default function IncomePage() {
   const [showPartialModal, setShowPartialModal] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [contractFile, setContractFile] = useState(null) // { dataUrl, fileName }
   const contractInputRef = useRef(null)
 
   const handleContractFile = async (file) => {
@@ -409,6 +421,10 @@ export default function IncomePage() {
         setAnalyzing(false)
         return
       }
+      // שמירת קובץ החוזה
+      const reader = new FileReader()
+      reader.onload = ev => setContractFile({ dataUrl: ev.target.result, fileName: file.name })
+      reader.readAsDataURL(file)
       // מילוי אוטומטי של השדות שחזרו מהניתוח
       setForm(prev => {
         const updated = { ...prev }
@@ -571,6 +587,7 @@ export default function IncomePage() {
         setLocation: newSess.setLocation || null,
         commercialNote: newSess.commercialNote || null,
         amount: 0,
+        notes: newSess.notes || null,
       }
     }
     if (t === 'יום צילום') {
@@ -606,6 +623,7 @@ export default function IncomePage() {
         setLocation: newSess.setLocation || null,
         setDistanceKm: newSess.setDistanceKm ?? null,
         setIsAboveThreshold: newSess.setIsAboveThreshold ?? null,
+        notes: newSess.notes || null,
       }
     }
     if (t === 'חזרות' || t === 'מדידות') {
@@ -632,6 +650,7 @@ export default function IncomePage() {
         manualMode: !!newSess.manualMode,
         manualAmount: newSess.manualMode ? (Number(newSess.manualAmount) || 0) : null,
         amount: finalAmt,
+        notes: newSess.notes || null,
       }
     }
     // ── Theater: חזרות חודשיות — סכום ידני תמיד (מול סכום כולל חזרות) ──
@@ -645,6 +664,7 @@ export default function IncomePage() {
         theaterMonth: newSess.theaterMonth || null,
         theaterLocation: newSess.theaterLocation || null,
         amount: finalAmt,
+        notes: newSess.notes || null,
       }
     }
     // ── Theater types ──
@@ -673,6 +693,7 @@ export default function IncomePage() {
         manualMode: !!newSess.manualMode,
         manualAmount: newSess.manualMode ? (Number(newSess.manualAmount) || 0) : null,
         amount: finalAmt,
+        notes: newSess.notes || null,
       }
     }
     // ── Dubbing: הקלטה / השלמה ──
@@ -704,11 +725,12 @@ export default function IncomePage() {
         manualMode: !!newSess.manualMode,
         manualAmount: newSess.manualMode ? (Number(newSess.manualAmount) || 0) : null,
         amount: finalAmt,
+        notes: newSess.notes || null,
       }
     }
     // טריילר — ₪200 קבוע
     if (form.projectType === 'dubbing' && t === 'טריילר') {
-      return { id, type: t, date: newSess.date || null, dubbingLocation: newSess.dubbingLocation || null, amount: 200 }
+      return { id, type: t, date: newSess.date || null, dubbingLocation: newSess.dubbingLocation || null, amount: 200, notes: newSess.notes || null }
     }
     // סרט — שעות × ₪166
     if (form.projectType === 'dubbing' && t === 'סרט') {
@@ -727,6 +749,7 @@ export default function IncomePage() {
         manualMode: !!newSess.manualMode,
         manualAmount: newSess.manualMode ? (Number(newSess.manualAmount) || 0) : null,
         amount: finalAmt,
+        notes: newSess.notes || null,
       }
     }
     // ── Lecture ──
@@ -743,6 +766,7 @@ export default function IncomePage() {
         lectureClient: newSess.lectureClient || null,
         lectureInvoiceReceived: !!newSess.lectureInvoiceReceived,
         amount: Number(newSess.manualAmount) || 0,
+        notes: newSess.notes || null,
       }
     }
     // 'אחר' — לפי כמות × תעריף
@@ -760,6 +784,7 @@ export default function IncomePage() {
       customName: newSess.customName || null,
       theaterLocation: newSess.theaterLocation || null,
       amount: qty * rate,
+      notes: newSess.notes || null,
     }
   }
 
@@ -784,6 +809,7 @@ export default function IncomePage() {
     const sessions = editingSessId
       ? base.map(w => w.id === editingSessId ? sess : w)
       : [...base, sess]
+    if (!editingSessId) playKaching()
     const totalAmount = sessions.reduce((s, w) => s + (w.amount || 0), 0)
     // מסחרי: לא לדרוס את הסכום הקבוע עם סכום הרישומים (שהוא 0)
     const updatedAmount = form.projectType === 'commercial' ? form.amount : totalAmount
@@ -834,6 +860,7 @@ export default function IncomePage() {
       lectureLocation: ws.lectureLocation || '',
       lectureClient: ws.lectureClient || '',
       lectureInvoiceReceived: !!ws.lectureInvoiceReceived,
+      notes: ws.notes || '',
     })
   }
 
@@ -855,7 +882,7 @@ export default function IncomePage() {
       setNewSess({ ...EMPTY_NEW_SESS, type: defaultSessType() })
     }
   }
-  const closeModal = () => { setModal(null); setEditingSessId(null); setNewSess(EMPTY_NEW_SESS) }
+  const closeModal = () => { setModal(null); setEditingSessId(null); setNewSess(EMPTY_NEW_SESS); setContractFile(null) }
 
   const save = () => {
     // אם יש רישום תקף בטופס הרישום החדש שלא נלחץ "+ הוסף רישום" — להוסיפו אוטומטית
@@ -873,11 +900,20 @@ export default function IncomePage() {
       : sessions.length > 0
         ? totalFromSessions
         : (form.amount === '' ? null : Number(form.amount))
+    const existingFiles = Array.isArray(form.files) ? form.files : []
+    const contractEntry = contractFile ? [{
+      id: 'contract_' + Date.now(),
+      type: 'contract',
+      file: contractFile.dataUrl,
+      fileName: contractFile.fileName,
+      uploadedAt: new Date().toISOString(),
+    }] : []
     const data = {
       ...form,
       sessions,
       amount:       finalAmount,
       expectedDate: form.expectedDate || null,
+      files: [...existingFiles.filter(f => f.type !== 'contract'), ...contractEntry],
     }
     if (modal === 'add') addFutureIncome(data)
     else {
@@ -893,6 +929,28 @@ export default function IncomePage() {
     setReceiveModal(null)
   }
   const undoReceived = (id, e) => { e.stopPropagation(); markIncomePending(id) }
+
+  const openFile = (f) => {
+    const dataUrl = f.file || ''
+    const isImage = dataUrl.startsWith('data:image/')
+    if (isImage) {
+      setViewingFile({ url: dataUrl, name: f.fileName, isImage: true })
+      return
+    }
+    // PDF או קובץ אחר — פתיחה בטאב חדש כ-blob URL (מציג את כל העמודים ב-Safari)
+    try {
+      const [meta, b64] = dataUrl.split(',')
+      const mime = meta.match(/:(.*?);/)?.[1] || 'application/pdf'
+      const bytes = atob(b64)
+      const arr = new Uint8Array(bytes.length)
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
+      const blob = new Blob([arr], { type: mime })
+      const blobUrl = URL.createObjectURL(blob)
+      window.open(blobUrl, '_blank')
+    } catch {
+      setViewingFile({ url: dataUrl, name: f.fileName, isImage: false })
+    }
+  }
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -922,6 +980,7 @@ export default function IncomePage() {
 
   const saveSession = () => {
     if (!sessForm.amount) return
+    playKaching()
     addWorkSession(workModal.item.id, {
       type:     sessForm.type,
       date:     sessForm.date || null,
@@ -1142,10 +1201,12 @@ export default function IncomePage() {
             <input ref={contractInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={e => { handleContractFile(e.target.files[0]); e.target.value = '' }} />
             {analyzing
               ? <p className="text-sm text-blue-600 font-medium">📄 מנתח חוזה...</p>
-              : <>
-                  <p className="text-sm text-gray-500">📄 גרור חוזה / תמונה לכאן</p>
-                  <p className="text-xs text-gray-400 mt-1">PDF או תמונה — השדות ימולאו אוטומטית</p>
-                </>
+              : contractFile
+                ? <p className="text-sm text-green-700 font-medium">📎 {contractFile.fileName}</p>
+                : <>
+                    <p className="text-sm text-gray-500">📄 גרור חוזה / תמונה לכאן</p>
+                    <p className="text-xs text-gray-400 mt-1">PDF או תמונה — השדות ימולאו אוטומטית</p>
+                  </>
             }
           </div>
           <Field label="סכום (₪)">
@@ -1255,14 +1316,15 @@ export default function IncomePage() {
                   {files.length > 0 && (
                     <div className="divide-y divide-gray-100 rounded-xl border border-gray-100 overflow-hidden">
                       {files.map(f => {
-                        const isInvoice = f.type === 'invoice'
+                        const isInvoice  = f.type === 'invoice'
+                        const isContract = f.type === 'contract'
                         return (
                           <div key={f.id} className="flex items-center justify-between px-3 py-2 bg-white">
                             <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${isInvoice ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                                {isInvoice ? 'חשבונית' : 'פירוט תשלום'}
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${isInvoice ? 'bg-blue-100 text-blue-700' : isContract ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
+                                {isInvoice ? 'חשבונית' : isContract ? 'חוזה' : 'פירוט תשלום'}
                               </span>
-                              <button type="button" onClick={() => setViewingFile({ url: f.file, name: f.fileName, isImage: (f.file || '').startsWith('data:image/') })} className="text-xs text-blue-600 underline truncate text-right">
+                              <button type="button" onClick={() => openFile(f)} className="text-xs text-blue-600 underline truncate text-right">
                                 {f.fileName}
                               </button>
                               {f.uploadedAt && <span className="text-[10px] text-gray-400 shrink-0">{formatDate(f.uploadedAt)}</span>}
@@ -1526,6 +1588,9 @@ export default function IncomePage() {
                         <p className="text-xs text-gray-400">
                           {ws.date ? formatDate(ws.date) : 'ללא תאריך'} · {formatSessionDetail(ws)}
                         </p>
+                        {ws.notes && (
+                          <p className="text-xs text-gray-500 italic">{ws.notes}</p>
+                        )}
                         {ws.setLocation && (
                           <p className={`text-xs font-medium ${ws.setIsAboveThreshold ? 'text-orange-500' : 'text-green-600'}`}>
                             {ws.setIsAboveThreshold ? '🚗' : '📍'} {ws.setLocation} ({ws.setDistanceKm} ק״מ) — {ws.setIsAboveThreshold ? 'מהבית' : 'מהסט'}
@@ -1761,6 +1826,9 @@ export default function IncomePage() {
                       </Field>
                     )}
 
+                    <Field label="הערה">
+                      <Input value={newSess.notes} onChange={v => setNewSess(s => ({ ...s, notes: v }))} placeholder="הערה לרישום זה (אופציונלי)..." />
+                    </Field>
                     <button onClick={addSessToForm} disabled={!canAdd} className="w-full bg-blue-600 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
                       {editingSessId ? 'עדכן רישום · ' : '+ הוסף רישום · '}{formatILS(finalAmt)}
                     </button>
@@ -1857,6 +1925,9 @@ export default function IncomePage() {
                       </Field>
                     )}
 
+                    <Field label="הערה">
+                      <Input value={newSess.notes} onChange={v => setNewSess(s => ({ ...s, notes: v }))} placeholder="הערה לרישום זה (אופציונלי)..." />
+                    </Field>
                     <button onClick={addSessToForm} disabled={!canAdd} className="w-full bg-blue-600 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
                       {editingSessId ? 'עדכן רישום · ' : '+ הוסף רישום · '}{formatILS(finalAmt)}
                     </button>
@@ -1904,6 +1975,9 @@ export default function IncomePage() {
                         )}
                       </div>
                     )}
+                    <Field label="הערה">
+                      <Input value={newSess.notes} onChange={v => setNewSess(s => ({ ...s, notes: v }))} placeholder="הערה לרישום זה (אופציונלי)..." />
+                    </Field>
                     <button onClick={addSessToForm} disabled={newSess.manualAmount === '' || newSess.manualAmount === undefined} className="w-full bg-purple-700 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
                       {editingSessId ? 'עדכן רישום · ' : '+ הוסף רישום · '}{formatILS(amt)}
                     </button>
@@ -1990,6 +2064,9 @@ export default function IncomePage() {
                       </Field>
                     )}
 
+                    <Field label="הערה">
+                      <Input value={newSess.notes} onChange={v => setNewSess(s => ({ ...s, notes: v }))} placeholder="הערה לרישום זה (אופציונלי)..." />
+                    </Field>
                     <button onClick={addSessToForm} disabled={!canAdd} className="w-full bg-purple-700 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
                       {editingSessId ? 'עדכן רישום · ' : '+ הוסף רישום · '}{formatILS(finalAmt)}
                     </button>
@@ -2049,6 +2126,9 @@ export default function IncomePage() {
                       </div>
                     )}
 
+                    <Field label="הערה">
+                      <Input value={newSess.notes} onChange={v => setNewSess(s => ({ ...s, notes: v }))} placeholder="הערה לרישום זה (אופציונלי)..." />
+                    </Field>
                     <button onClick={addSessToForm} className="w-full bg-orange-600 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
                       {editingSessId ? 'עדכן רישום' : '+ הוסף רישום'}
                     </button>
@@ -2137,6 +2217,9 @@ export default function IncomePage() {
                       </div>
                     )}
 
+                    <Field label="הערה">
+                      <Input value={newSess.notes} onChange={v => setNewSess(s => ({ ...s, notes: v }))} placeholder="הערה לרישום זה (אופציונלי)..." />
+                    </Field>
                     <button onClick={addSessToForm} disabled={h <= 0} className="w-full bg-pink-600 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
                       {editingSessId ? 'עדכן רישום' : '+ הוסף רישום'}
                     </button>
@@ -2161,6 +2244,9 @@ export default function IncomePage() {
                       <span className="font-bold text-pink-700">₪200</span>
                     </div>
                   </div>
+                  <Field label="הערה">
+                    <Input value={newSess.notes} onChange={v => setNewSess(s => ({ ...s, notes: v }))} placeholder="הערה לרישום זה (אופציונלי)..." />
+                  </Field>
                   <button onClick={addSessToForm} className="w-full bg-pink-600 text-white text-sm font-semibold py-2 rounded-xl">
                     {editingSessId ? 'עדכן רישום' : '+ הוסף רישום'}
                   </button>
@@ -2236,6 +2322,9 @@ export default function IncomePage() {
                         <Input type="number" value={newSess.manualAmount} onChange={v => setNewSess(s => ({ ...s, manualAmount: v }))} placeholder="0" />
                       </Field>
                     )}
+                    <Field label="הערה">
+                      <Input value={newSess.notes} onChange={v => setNewSess(s => ({ ...s, notes: v }))} placeholder="הערה לרישום זה (אופציונלי)..." />
+                    </Field>
                     <button onClick={addSessToForm} disabled={!canAdd} className="w-full bg-pink-600 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
                       {editingSessId ? 'עדכן רישום' : '+ הוסף רישום'}
                     </button>
@@ -2293,6 +2382,9 @@ export default function IncomePage() {
                         className="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
                       <span className="text-xs font-medium text-gray-600">✓ התקבלה חשבונית</span>
                     </label>
+                    <Field label="הערה">
+                      <Input value={newSess.notes} onChange={v => setNewSess(s => ({ ...s, notes: v }))} placeholder="הערה לרישום זה (אופציונלי)..." />
+                    </Field>
                     <button onClick={addSessToForm} disabled={!canAdd} className="w-full bg-teal-600 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
                       {editingSessId ? 'עדכן רישום' : '+ הוסף רישום'}
                     </button>
@@ -2329,6 +2421,9 @@ export default function IncomePage() {
                     {total > 0 && (
                       <div className="text-center text-xs text-green-600 font-semibold">סה״כ: {formatILS(total)}</div>
                     )}
+                    <Field label="הערה">
+                      <Input value={newSess.notes} onChange={v => setNewSess(s => ({ ...s, notes: v }))} placeholder="הערה לרישום זה (אופציונלי)..." />
+                    </Field>
                     <button onClick={addSessToForm} disabled={!newSess.rate} className="w-full bg-blue-600 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl">
                       {editingSessId ? 'עדכן רישום' : '+ הוסף רישום'}
                     </button>

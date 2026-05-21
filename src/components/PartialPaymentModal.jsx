@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import useStore from '../store/useStore'
 import Modal, { Field, Input, SaveButton } from './Modal'
 import { formatILS, formatDate } from '../utils/formatters'
@@ -15,7 +15,7 @@ const getFactors = (item, isRental) => {
 }
 
 export default function PartialPaymentModal({ item: initialItem, onClose }) {
-  const { accounts, futureIncome, rentalIncome, confirmedEvents, addIncomePayment, removeIncomePayment, addRentalPayment, removeRentalPayment } = useStore()
+  const { accounts, futureIncome, rentalIncome, usdRate, addIncomePayment, removeIncomePayment, addRentalPayment, removeRentalPayment } = useStore()
 
   const isRental = initialItem._type === 'rental'
   const isUSD    = initialItem.currency === 'USD'
@@ -28,24 +28,33 @@ export default function PartialPaymentModal({ item: initialItem, onClose }) {
   const { commission, vat } = getFactors(item, isRental)
   const hasFlags = commission !== 1 || vat !== 1
 
-  // הסכום הכולל של הפרויקט בבסיס (כמו שמופיע בעריכת הפרויקט)
-  const totalBase     = isUSD ? (item.usdAmount || item.amount || 0) : (item.amount || 0)
+  // הסכום הקבוע הבסיסי של הפרויקט
+  const totalBase = isUSD ? (item.usdAmount || item.amount || 0) : (item.amount || 0)
+
+  // אם יש override לחודש הספציפי — משתמשים בו כסכום לגבייה
+  const _mKey  = initialItem._mKey
+  const ovrAmt = _mKey != null ? item.monthlyAmounts?.[_mKey] : undefined
+  const effectiveTotal = ovrAmt != null ? ovrAmt : totalBase
+
   const payments      = item.payments || []
-  // סך מה שהתקבל, בבסיס — זה המקזז את יתרת הפרויקט
-  const receivedBase  = payments.reduce((s, p) => s + (p.amount || 0), 0)
-  const remainingBase = totalBase - receivedBase
-  // הסכום שעדיין צפוי להיכנס לחשבון הבנק (ברוטו)
+  const mKeyPayments  = (isRental && _mKey) ? payments.filter(p => p.mKey === _mKey) : payments
+  const receivedBase  = mKeyPayments.reduce((s, p) => s + (p.amount || 0), 0)
+  const remainingBase = effectiveTotal - receivedBase
   const remainingBank = Math.round(remainingBase * commission * vat * 100) / 100
 
   const filteredAccounts = isUSD
-    ? accounts.filter(a => a.currency === 'USD')
+    ? accounts.filter(a => a.currency === 'USD' || a.usdBalance > 0)
     : accounts.filter(a => a.currency !== 'USD')
 
-  // ברירת המחדל בשדה — הסכום שצריך להיכנס לבנק להשלמת הפרויקט
   const [amount, setAmount]       = useState(String(remainingBank > 0 ? remainingBank : ''))
   const [accountId, setAccountId] = useState(initialItem.accountId || '')
   const [error, setError]         = useState(null)
   const [justSaved, setJustSaved] = useState(false)
+
+  // כשמוחקים תשלום — מעדכן את שדה הסכום ליתרה החדשה
+  useEffect(() => {
+    setAmount(String(remainingBank > 0 ? remainingBank : ''))
+  }, [receivedBase])
 
   const fmt = (v) => isUSD ? `$${(v || 0).toLocaleString()}` : formatILS(v || 0)
 
@@ -61,23 +70,14 @@ export default function PartialPaymentModal({ item: initialItem, onClose }) {
     if (!amt || amt <= 0) { setError('הזן סכום'); return }
     if (!accountId) { setError('בחר חשבון לזיכוי'); return }
     setError(null)
-    if (isRental) addRentalPayment(item.id, amt, accountId)
+    if (isRental) addRentalPayment(item.id, amt, accountId, initialItem._mKey)
     else addIncomePayment(item.id, amt, accountId)
     setJustSaved(true)
     setAmount('')
     setTimeout(() => setJustSaved(false), 1500)
   }
 
-  const itemLocked = (confirmedEvents || []).some(e => {
-    const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
-    return bare === item.id
-  })
-
   const handleRemove = (paymentId) => {
-    if (itemLocked) {
-      alert('הפריט כבר אושר בלוח הבית. בטל אישור לפני מחיקת תשלום חלקי.')
-      return
-    }
     if (isRental) removeRentalPayment(item.id, paymentId)
     else removeIncomePayment(item.id, paymentId)
   }
@@ -85,17 +85,19 @@ export default function PartialPaymentModal({ item: initialItem, onClose }) {
   return (
     <Modal title={`תשלום חלקי — ${item.name}`} onClose={onClose} onSave={handleSave}>
       <div className="bg-gray-50 rounded-xl px-4 py-3 space-y-1 mb-2">
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-500">סכום הפרויקט (בסיס)</span>
-          <span className="font-bold text-gray-800">{fmt(totalBase)}</span>
+        <div className="flex justify-between items-baseline">
+          <span className="text-gray-500 text-sm">נותר לקבלה</span>
+          <div className="text-left">
+            <span className={`text-xl font-bold ${remainingBase > 0 ? 'text-orange-600' : 'text-green-600'}`}>{fmt(remainingBase)}</span>
+            <span className="text-[11px] text-gray-400 mr-1"> / {fmt(effectiveTotal)}</span>
+            {ovrAmt != null && Math.abs(effectiveTotal - totalBase) > 0.01 && (
+              <span className="text-[10px] text-gray-400 mr-1">(מקורי: {fmt(totalBase)})</span>
+            )}
+          </div>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="text-gray-500">התקבל עד כה (בסיס)</span>
+          <span className="text-gray-500">התקבל</span>
           <span className="font-semibold text-green-600">{fmt(receivedBase)}</span>
-        </div>
-        <div className="flex justify-between text-sm border-t border-gray-200 pt-1 mt-1">
-          <span className="text-gray-500">נותר (בסיס)</span>
-          <span className={`font-bold ${remainingBase > 0 ? 'text-orange-600' : 'text-green-600'}`}>{fmt(remainingBase)}</span>
         </div>
         {hasFlags && (
           <div className="text-[10px] text-gray-400 pt-1 border-t border-gray-200 mt-1 text-center">
@@ -108,11 +110,10 @@ export default function PartialPaymentModal({ item: initialItem, onClose }) {
         )}
       </div>
 
-      {payments.length > 0 && (
+      {mKeyPayments.length > 0 && (
         <div className="space-y-1 mb-3">
           <p className="text-xs font-semibold text-gray-500 mb-1">תשלומים שהתקבלו</p>
-          {payments.map(p => {
-            // תשלומים חדשים נושאים bankAmount (מה שנכנס לבנק). ישנים — רק amount.
+          {mKeyPayments.map(p => {
             const shownBank = p.bankAmount != null ? p.bankAmount : p.amount
             const shownBase = p.amount
             const differs = hasFlags && p.bankAmount != null && Math.abs(shownBank - shownBase) > 0.5
@@ -130,9 +131,7 @@ export default function PartialPaymentModal({ item: initialItem, onClose }) {
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleRemove(p.id) }}
-                  disabled={itemLocked}
-                  title={itemLocked ? 'בטל אישור בדשבורד לפני מחיקה' : ''}
-                  className={`w-9 h-9 flex items-center justify-center text-lg font-bold rounded-full shrink-0 mr-1 ${itemLocked ? 'text-gray-300 bg-gray-100 cursor-not-allowed' : 'text-red-500 bg-red-50 active:bg-red-200'}`}
+                  className="w-9 h-9 flex items-center justify-center text-lg font-bold rounded-full shrink-0 mr-1 text-red-500 bg-red-50 active:bg-red-200"
                   style={{ touchAction: 'manipulation' }}
                 >✕</button>
               </div>

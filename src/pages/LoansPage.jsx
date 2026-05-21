@@ -10,7 +10,8 @@ import { calcRemainingBalance } from '../utils/calculations'
 // מחזיר את הסכום מלוח הסילוקין לחודש הקרוב, או monthlyPayment כ-fallback
 function getCurrentPayment(loan) {
   if (!loan.paymentSchedule?.length) return loan.monthlyPayment || 0
-  const todayStr = new Date().toISOString().split('T')[0]
+  const t = new Date()
+  const todayStr = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`
   const next = loan.paymentSchedule.find(p => p.date && p.date > todayStr)
   if (next) return next.amount
   // אם אין תשלום עתידי, הלוואה הסתיימה
@@ -34,10 +35,35 @@ const INTEREST_OPTIONS = [
   { value: 'prime-0.7',label: 'פריים -0.7%' },
 ]
 
-function nextChargeDate(chargeDay) {
+function nextChargeDate(chargeDay, loanId, confirmedEvents, startDate) {
   const now = new Date(); now.setHours(0,0,0,0)
-  const d = new Date(now.getFullYear(), now.getMonth(), chargeDay)
-  if (d <= now) d.setMonth(d.getMonth() + 1)
+  const loanConfs = (confirmedEvents || []).filter(e => {
+    const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
+    return bare === loanId
+  })
+  // תחילת חלון — 14 יום אחורה (זהה לדאשבורד), כדי שהתאריך תמיד מסונכרן
+  const cutoff = new Date(now.getTime() - 31 * 86400000)
+  let d = new Date(cutoff.getFullYear(), cutoff.getMonth(), chargeDay)
+  if (d < cutoff) d = new Date(d.getFullYear(), d.getMonth() + 1, chargeDay)
+  // לא לפני תאריך החיוב הראשון של ההלוואה
+  if (startDate) {
+    const s = new Date(startDate)
+    const firstCharge = new Date(s.getFullYear(), s.getMonth() + 1, chargeDay)
+    if ((firstCharge - s) / 864e5 < 15) firstCharge.setMonth(firstCharge.getMonth() + 1)
+    if (firstCharge > d) d = firstCharge
+  }
+  for (let i = 0; i < 24; i++) {
+    const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    // תיקון timezone: חצות ישראל (UTC+3) = 21:00 יום קודם UTC — לכן chargeDay=1 נשמר כ"30 בחודש קודם"
+    const prevDay = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1)
+    const prevDayStr = `${prevDay.getFullYear()}-${String(prevDay.getMonth() + 1).padStart(2, '0')}-${String(prevDay.getDate()).padStart(2, '0')}`
+    const confirmed = loanConfs.some(e => {
+      const date = e.date || ''
+      return date.startsWith(yearMonth) || date === prevDayStr
+    })
+    if (!confirmed) return d.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })
+    d = new Date(d.getFullYear(), d.getMonth() + 1, chargeDay)
+  }
   return d.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })
 }
 
@@ -49,7 +75,7 @@ const EMPTY_LOAN = {
 }
 
 export default function LoansPage() {
-  const { loans, accounts, addLoan, updateLoan, deleteLoan } = useStore()
+  const { loans, accounts, addLoan, updateLoan, deleteLoan, confirmedEvents } = useStore()
   const [modal, setModal] = useState(null) // null | 'add' | { loan }
   const [form, setForm]   = useState(EMPTY_LOAN)
   const [analyzing, setAnalyzing] = useState(false)
@@ -194,7 +220,7 @@ export default function LoansPage() {
             </div>
             <div className="space-y-3">
               {loans.filter(l => l.type === 'mortgage').map(loan => (
-                <LoanCard key={loan.id} loan={loan} onEdit={() => openEdit(loan)} isMortgage />
+                <LoanCard key={loan.id} loan={loan} onEdit={() => openEdit(loan)} isMortgage confirmedEvents={confirmedEvents} />
               ))}
             </div>
           </div>
@@ -213,7 +239,7 @@ export default function LoansPage() {
             </div>
             <div className="space-y-3">
               {loans.filter(l => l.type !== 'mortgage' && !l.paidByFriend).map(loan => (
-                <LoanCard key={loan.id} loan={loan} onEdit={() => openEdit(loan)} />
+                <LoanCard key={loan.id} loan={loan} onEdit={() => openEdit(loan)} confirmedEvents={confirmedEvents} />
               ))}
             </div>
           </div>
@@ -231,7 +257,7 @@ export default function LoansPage() {
             </div>
             <div className="space-y-3">
               {loans.filter(l => l.paidByFriend).map(loan => (
-                <LoanCard key={loan.id} loan={loan} onEdit={() => openEdit(loan)} />
+                <LoanCard key={loan.id} loan={loan} onEdit={() => openEdit(loan)} confirmedEvents={confirmedEvents} />
               ))}
             </div>
           </div>
@@ -369,13 +395,28 @@ const LOAN_LABEL = {
 }
 
 
-function LoanCard({ loan, onEdit, isMortgage }) {
+function LoanCard({ loan, onEdit, isMortgage, confirmedEvents }) {
   const progress  = calcLoanProgress(loan.startDate, loan.durationMonths, loan.paymentSchedule)
-  const remaining = calcRemainingMonths(loan.startDate, loan.durationMonths, loan.paymentSchedule)
+  const baseRemaining = calcRemainingMonths(loan.startDate, loan.durationMonths, loan.paymentSchedule)
+  const remaining = loan.paymentSchedule?.length > 0
+    ? Math.max(0, loan.paymentSchedule.length - (loan.paidCount || 0))
+    : (baseRemaining !== null ? Math.max(0, baseRemaining - (loan.paidCount || 0)) : null)
   const endDate   = calcEndDate(loan.startDate, loan.durationMonths, loan.paymentSchedule)
   const { balance, missing, isOverride, fromSchedule } = calcRemainingBalance(loan)
   const hasMissing = missing && missing.length > 0
   const payment = getCurrentPayment(loan)
+
+  const nextChargeDateStr = (() => {
+    if (!loan.chargeDay) return null
+    if (loan.paymentSchedule?.length > 0) {
+      const schedule = [...loan.paymentSchedule].sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+      const next = schedule[loan.paidCount || 0]
+      if (!next) return null
+      const d = new Date(next.date + 'T12:00:00')
+      return d.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })
+    }
+    return nextChargeDate(loan.chargeDay, loan.id, confirmedEvents, loan.startDate)
+  })()
 
   if (isMortgage) {
     const isLeumi = loan.accountId === 'ba6' || (loan.note || '').includes('לאומי')
@@ -388,7 +429,7 @@ function LoanCard({ loan, onEdit, isMortgage }) {
         <div className={`bg-gradient-to-l ${theme.grad} px-4 py-3 flex items-center justify-between`}>
           <div>
             <p className="text-white font-bold text-base leading-tight">{loan.name}</p>
-            <p className={`${theme.sub} text-xs`}>{loan.owner}{loan.chargeDay ? ` · חיוב הבא: ${nextChargeDate(loan.chargeDay)}` : ''}</p>
+            <p className={`${theme.sub} text-xs`}>{loan.owner}{nextChargeDateStr ? ` · חיוב הבא: ${nextChargeDateStr}` : ''}</p>
           </div>
           <div className="text-left">
             <p className="text-white font-bold text-lg leading-tight">{formatILS(payment)}</p>
@@ -454,7 +495,7 @@ function LoanCard({ loan, onEdit, isMortgage }) {
           </div>
           <h3 className={`font-semibold ${hasGradient ? 'text-white' : 'text-gray-800'}`}>{loan.name}</h3>
           <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-            {loan.chargeDay && <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white text-opacity-80' : 'bg-purple-100 text-purple-400'}`}>חיוב: {nextChargeDate(loan.chargeDay)}</span>}
+            {nextChargeDateStr && <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white text-opacity-80' : 'bg-purple-100 text-purple-400'}`}>חיוב: {nextChargeDateStr}</span>}
             {loan.interestRate > 0 && <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white text-opacity-80' : 'bg-purple-100 text-purple-400'}`}>{loan.interestRate}%</span>}
           </div>
         </div>
@@ -502,8 +543,8 @@ function LoanCard({ loan, onEdit, isMortgage }) {
           </div>
           <h3 className={`font-semibold ${hasGradient ? 'text-white' : 'text-gray-800'}`}>{loan.name}</h3>
           <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-            {loan.chargeDay && (
-              <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white text-opacity-80' : 'bg-gray-100 text-gray-500'}`}>חיוב: {nextChargeDate(loan.chargeDay)}</span>
+            {nextChargeDateStr && (
+              <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white text-opacity-80' : 'bg-gray-100 text-gray-500'}`}>חיוב: {nextChargeDateStr}</span>
             )}
             {loan.interestRate > 0 && (
               <span className={`text-xs px-2 py-0.5 rounded-full ${hasGradient ? 'bg-white bg-opacity-20 text-white text-opacity-80' : 'bg-blue-50 text-blue-500'}`}>{loan.interestRate}%</span>

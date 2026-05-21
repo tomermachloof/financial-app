@@ -34,6 +34,28 @@ const bankToBase = (item, bank) => {
   return Math.round((bank / commission / vat) * 100) / 100
 }
 
+// חישוב מספר תשלומים שנעשו עד תאריך נתון
+const _paymentsAt = (startDate, chargeDay, durationMonths, asOf) => {
+  const today = asOf ? new Date(asOf) : new Date()
+  const start = new Date(startDate)
+  const day = chargeDay || 1
+  let payDate = new Date(start.getFullYear(), start.getMonth() + 1, day)
+  if ((payDate - start) / 864e5 < 15) payDate.setMonth(payDate.getMonth() + 1)
+  let count = 0
+  while (payDate <= today && count < durationMonths) { count++; payDate.setMonth(payDate.getMonth() + 1) }
+  return count
+}
+// חישוב יתרת קרן שפיצר לאחר n תשלומים
+const _formulaBalance = (loan, n) => {
+  const { totalAmount, durationMonths: N, interestRate } = loan
+  if (!totalAmount || !N) return null
+  if (n >= N) return 0
+  if (!interestRate) return Math.max(0, Math.round(totalAmount * (1 - n / N)))
+  const r = (interestRate / 100) / 12
+  const f = Math.pow(1 + r, N), fn = Math.pow(1 + r, n)
+  return Math.max(0, Math.round(totalAmount * (f - fn) / (f - 1)))
+}
+
 const useStore = create(
   persist(
     (set) => ({
@@ -70,17 +92,37 @@ const useStore = create(
           const newReminders = existing
             ? s.friendReminders.map(r => r.loanId === loanId && r.monthKey === monthKey ? { ...r, moneyReceived: true, _delta: amount, _accountId: accountId } : r)
             : [...(s.friendReminders || []), { loanId, monthKey, reminderSent: true, moneyReceived: true, _delta: amount, _accountId: accountId }]
-          if (!accountId || !amount) return { friendReminders: newReminders }
-          const accounts = s.accounts.map(a => a.id !== accountId ? a : { ...a, balance: (a.balance || 0) + amount })
-          return { friendReminders: newReminders, accounts }
+          // עדכון חשבון
+          let accounts = s.accounts
+          if (accountId && amount) {
+            accounts = s.accounts.map(a => a.id !== accountId ? a : { ...a, balance: (a.balance || 0) + amount })
+          }
+          // עדכון יתרת הלוואה — רק להלוואות ללא לוח סילוקין
+          let loans = s.loans
+          const loan = s.loans.find(l => l.id === loanId)
+          if (loan && amount && loan.balanceOverride != null) {
+            const newBalance = Math.max(0, Math.round(loan.balanceOverride - amount))
+            loans = s.loans.map(l => l.id !== loanId ? l : { ...l, paidCount: (l.paidCount || 0) + 1, balanceOverride: newBalance, _updatedAt: Date.now() })
+          }
+          return { friendReminders: newReminders, accounts, loans }
         }),
       undoFriendMoneyReceived: (loanId, monthKey) =>
         set(s => {
           const rec = (s.friendReminders || []).find(r => r.loanId === loanId && r.monthKey === monthKey)
           const newReminders = (s.friendReminders || []).map(r => r.loanId === loanId && r.monthKey === monthKey ? { ...r, moneyReceived: false, _delta: null, _accountId: null } : r)
-          if (!rec?._accountId || !rec?._delta) return { friendReminders: newReminders }
-          const accounts = s.accounts.map(a => a.id !== rec._accountId ? a : { ...a, balance: (a.balance || 0) - rec._delta })
-          return { friendReminders: newReminders, accounts }
+          // החזרת יתרת חשבון
+          let accounts = s.accounts
+          if (rec?._accountId && rec?._delta) {
+            accounts = s.accounts.map(a => a.id !== rec._accountId ? a : { ...a, balance: (a.balance || 0) - rec._delta })
+          }
+          // החזרת יתרת הלוואה — רק להלוואות ללא לוח סילוקין
+          let loans = s.loans
+          const loan = s.loans.find(l => l.id === loanId)
+          if (loan && rec?._delta && loan.balanceOverride != null) {
+            const newBalance = loan.balanceOverride + rec._delta
+            loans = s.loans.map(l => l.id !== loanId ? l : { ...l, paidCount: Math.max(0, (l.paidCount || 0) - 1), balanceOverride: newBalance, _updatedAt: Date.now() })
+          }
+          return { friendReminders: newReminders, accounts, loans }
         }),
 
       // ── Accounts ──────────────────────────────
@@ -89,7 +131,17 @@ const useStore = create(
       addAccount: (account) =>
         set(s => ({ accounts: [...s.accounts, { ...account, id: 'ba' + Date.now() }] })),
       deleteAccount: (id) =>
-        set(s => ({ accounts: s.accounts.filter(a => a.id !== id), deletedIds: { ...s.deletedIds, accounts: [...(s.deletedIds?.accounts || []), id] } })),
+        set(s => {
+          const item = s.accounts.find(a => a.id === id)
+          if (item) {
+            fetch('https://financial-notify.tomer-finance.workers.dev/notify-delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'חשבון בנק', name: item.name || item.bankName || id, id }),
+            }).catch(() => {})
+          }
+          return { accounts: s.accounts.filter(a => a.id !== id), deletedIds: { ...s.deletedIds, accounts: [...(s.deletedIds?.accounts || []), id] } }
+        }),
 
       // ── Investments ───────────────────────────
       updateInvestment: (id, updates) =>
@@ -97,7 +149,17 @@ const useStore = create(
       addInvestment: (inv) =>
         set(s => ({ investments: [...s.investments, { ...inv, id: 'inv' + Date.now() }] })),
       deleteInvestment: (id) =>
-        set(s => ({ investments: s.investments.filter(i => i.id !== id), deletedIds: { ...s.deletedIds, investments: [...(s.deletedIds?.investments || []), id] } })),
+        set(s => {
+          const item = s.investments.find(i => i.id === id)
+          if (item) {
+            fetch('https://financial-notify.tomer-finance.workers.dev/notify-delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'השקעה', name: item.name || id, id }),
+            }).catch(() => {})
+          }
+          return { investments: s.investments.filter(i => i.id !== id), deletedIds: { ...s.deletedIds, investments: [...(s.deletedIds?.investments || []), id] } }
+        }),
 
       // ── Loans ─────────────────────────────────
       updateLoan: (id, updates) =>
@@ -135,6 +197,13 @@ const useStore = create(
       deleteLoan: (id, opts = {}) =>
         set(s => {
           const loan = s.loans.find(l => l.id === id)
+          if (loan) {
+            fetch('https://financial-notify.tomer-finance.workers.dev/notify-delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'הלוואה', name: loan.name || id, id }),
+            }).catch(() => {})
+          }
           const newState = { loans: s.loans.filter(l => l.id !== id) }
           // Optional: reverse the original credit applied via addLoan (creditAccountId)
           if (opts.reverseCredit && loan && loan.creditAccountId && loan.totalAmount) {
@@ -170,14 +239,24 @@ const useStore = create(
       addExpense: (expense) =>
         set(s => ({ expenses: [...s.expenses, { ...expense, id: 'e' + Date.now() }] })),
       deleteExpense: (id) =>
-        set(s => ({
-          expenses: s.expenses.filter(e => e.id !== id),
-          confirmedEvents: (s.confirmedEvents || []).filter(e => {
-            const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
-            return bare !== id
-          }),
-          deletedIds: { ...s.deletedIds, expenses: [...(s.deletedIds?.expenses || []), id] },
-        })),
+        set(s => {
+          const item = s.expenses.find(e => e.id === id)
+          if (item) {
+            fetch('https://financial-notify.tomer-finance.workers.dev/notify-delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'הוצאה', name: item.name || id, id }),
+            }).catch(() => {})
+          }
+          return {
+            expenses: s.expenses.filter(e => e.id !== id),
+            confirmedEvents: (s.confirmedEvents || []).filter(e => {
+              const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
+              return bare !== id
+            }),
+            deletedIds: { ...s.deletedIds, expenses: [...(s.deletedIds?.expenses || []), id] },
+          }
+        }),
 
       // ── Rental Income ─────────────────────────
       updateRentalIncome: (id, updates) =>
@@ -199,14 +278,24 @@ const useStore = create(
       addRentalIncome: (item) =>
         set(s => ({ rentalIncome: [...s.rentalIncome, { ...item, id: 'r' + Date.now() }] })),
       deleteRentalIncome: (id) =>
-        set(s => ({
-          rentalIncome: s.rentalIncome.filter(r => r.id !== id),
-          confirmedEvents: (s.confirmedEvents || []).filter(e => {
-            const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
-            return bare !== id
-          }),
-          deletedIds: { ...s.deletedIds, rentalIncome: [...(s.deletedIds?.rentalIncome || []), id] },
-        })),
+        set(s => {
+          const item = s.rentalIncome.find(r => r.id === id)
+          if (item) {
+            fetch('https://financial-notify.tomer-finance.workers.dev/notify-delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'שכירות', name: item.name || item.tenant || id, id }),
+            }).catch(() => {})
+          }
+          return {
+            rentalIncome: s.rentalIncome.filter(r => r.id !== id),
+            confirmedEvents: (s.confirmedEvents || []).filter(e => {
+              const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
+              return bare !== id
+            }),
+            deletedIds: { ...s.deletedIds, rentalIncome: [...(s.deletedIds?.rentalIncome || []), id] },
+          }
+        }),
 
       // ── Future Income ─────────────────────────
       updateFutureIncome: (id, updates) =>
@@ -220,14 +309,24 @@ const useStore = create(
       addFutureIncome: (item) =>
         set(s => ({ futureIncome: [{ ...item, id: 'fi' + Date.now(), status: 'pending' }, ...s.futureIncome] })),
       deleteFutureIncome: (id) =>
-        set(s => ({
-          futureIncome: s.futureIncome.filter(f => f.id !== id),
-          confirmedEvents: (s.confirmedEvents || []).filter(e => {
-            const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
-            return bare !== id
-          }),
-          deletedIds: { ...s.deletedIds, futureIncome: [...(s.deletedIds?.futureIncome || []), id] },
-        })),
+        set(s => {
+          const item = s.futureIncome.find(f => f.id === id)
+          if (item) {
+            fetch('https://financial-notify.tomer-finance.workers.dev/notify-delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'הכנסה עתידית', name: item.name || item.projectName || id, id }),
+            }).catch(() => {})
+          }
+          return {
+            futureIncome: s.futureIncome.filter(f => f.id !== id),
+            confirmedEvents: (s.confirmedEvents || []).filter(e => {
+              const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
+              return bare !== id
+            }),
+            deletedIds: { ...s.deletedIds, futureIncome: [...(s.deletedIds?.futureIncome || []), id] },
+          }
+        }),
       markIncomeReceived: (id, accountId) =>
         set(s => {
           const item = s.futureIncome.find(f => f.id === id)
@@ -294,12 +393,6 @@ const useStore = create(
         set(s => {
           const item = s.futureIncome.find(f => f.id === incomeId)
           if (!item) return s
-          // Guard: don't allow removal if item was already confirmed — would cause double-credit reversal
-          const isConfirmed = (s.confirmedEvents || []).some(e => {
-            const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
-            return bare === incomeId
-          })
-          if (isConfirmed) return s
           const payment = (item.payments || []).find(p => p.id === paymentId)
           if (!payment) return s
           // לביטול הזיכוי — להשתמש בסכום שבאמת נכנס לחשבון. תשלומים ישנים
@@ -316,14 +409,16 @@ const useStore = create(
           return { futureIncome: newFI, accounts }
         }),
       // Partial payments on rentalIncome — same logic but on rentalIncome[]
-      addRentalPayment: (rentalId, amount, accountId) =>
+      addRentalPayment: (rentalId, amount, accountId, mKey) =>
         set(s => {
           const item = s.rentalIncome.find(r => r.id === rentalId)
           if (!item || !amount) return s
-          const payment = { id: 'pay' + Date.now(), amount, accountId, date: new Date().toISOString() }
-          const newRental = s.rentalIncome.map(r => r.id === rentalId ? { ...r, payments: [...(r.payments || []), payment] } : r)
-          if (!accountId) return { rentalIncome: newRental }
+          const payment = { id: 'pay' + Date.now(), amount, accountId, date: new Date().toISOString(), mKey: mKey || null }
           const isUSD = item.currency === 'USD'
+          const newRental = s.rentalIncome.map(r => r.id !== rentalId ? r : {
+            ...r, payments: [...(r.payments || []), payment]
+          })
+          if (!accountId) return { rentalIncome: newRental }
           const accounts = s.accounts.map(a => {
             if (a.id !== accountId) return a
             if (isUSD) return { ...a, usdBalance: (a.usdBalance || 0) + amount }
@@ -335,15 +430,11 @@ const useStore = create(
         set(s => {
           const item = s.rentalIncome.find(r => r.id === rentalId)
           if (!item) return s
-          // Guard: don't allow removal if item was already confirmed for current month
-          const isConfirmed = (s.confirmedEvents || []).some(e => {
-            const bare = String(e.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
-            return bare === rentalId
-          })
-          if (isConfirmed) return s
           const payment = (item.payments || []).find(p => p.id === paymentId)
           if (!payment) return s
-          const newRental = s.rentalIncome.map(r => r.id === rentalId ? { ...r, payments: (r.payments || []).filter(p => p.id !== paymentId) } : r)
+          const newRental = s.rentalIncome.map(r => r.id === rentalId
+            ? { ...r, payments: (r.payments || []).filter(p => p.id !== paymentId) }
+            : r)
           if (!payment.accountId) return { rentalIncome: newRental }
           const isUSD = item.currency === 'USD'
           const accounts = s.accounts.map(a => {
@@ -361,11 +452,20 @@ const useStore = create(
           return { ...f, sessions, amount: sessions.reduce((sum, ws) => sum + (ws.amount || 0), 0) }
         })})),
       deleteWorkSession: (incomeId, sessionId) =>
-        set(s => ({ futureIncome: s.futureIncome.map(f => {
-          if (f.id !== incomeId) return f
-          const sessions = (f.sessions || []).filter(ws => ws.id !== sessionId)
-          return { ...f, sessions, amount: sessions.reduce((sum, ws) => sum + (ws.amount || 0), 0) }
-        })})),
+        set(s => {
+          const income = s.futureIncome.find(f => f.id === incomeId)
+          const session = income?.sessions?.find(ws => ws.id === sessionId)
+          fetch('https://financial-notify.tomer-finance.workers.dev/notify-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'סשן עבודה', name: `${income?.name || incomeId} / ${session?.date || sessionId}`, id: sessionId }),
+          }).catch(() => {})
+          return { futureIncome: s.futureIncome.map(f => {
+            if (f.id !== incomeId) return f
+            const sessions = (f.sessions || []).filter(ws => ws.id !== sessionId)
+            return { ...f, sessions, amount: sessions.reduce((sum, ws) => sum + (ws.amount || 0), 0) }
+          })}
+        }),
       updateWorkSession: (incomeId, sessionId, updates) =>
         set(s => ({ futureIncome: s.futureIncome.map(f => {
           if (f.id !== incomeId) return f
@@ -379,7 +479,17 @@ const useStore = create(
       addDebt: (debt) =>
         set(s => ({ debts: [...s.debts, { ...debt, id: 'd' + Date.now() }] })),
       deleteDebt: (id) =>
-        set(s => ({ debts: s.debts.filter(d => d.id !== id), deletedIds: { ...s.deletedIds, debts: [...(s.deletedIds?.debts || []), id] } })),
+        set(s => {
+          const item = s.debts.find(d => d.id === id)
+          if (item) {
+            fetch('https://financial-notify.tomer-finance.workers.dev/notify-delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'חוב', name: item.name || id, id }),
+            }).catch(() => {})
+          }
+          return { debts: s.debts.filter(d => d.id !== id), deletedIds: { ...s.deletedIds, debts: [...(s.deletedIds?.debts || []), id] } }
+        }),
 
       // ── Dismissed Events (hidden from today without deleting) ────────────
       dismissedEvents: [], // [{ id, date }]
@@ -395,7 +505,17 @@ const useStore = create(
       updateReminder: (id, updates) =>
         set(s => ({ reminders: (s.reminders || []).map(r => r.id === id ? { ...r, ...updates } : r) })),
       deleteReminder: (id) =>
-        set(s => ({ reminders: (s.reminders || []).filter(r => r.id !== id) })),
+        set(s => {
+          const item = s.reminders?.find(r => r.id === id)
+          if (item) {
+            fetch('https://financial-notify.tomer-finance.workers.dev/notify-delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'תזכורת', name: item.title || item.text || item.name || id, id }),
+            }).catch(() => {})
+          }
+          return { reminders: (s.reminders || []).filter(r => r.id !== id) }
+        }),
       doneReminder: (id) =>
         set(s => ({ reminders: (s.reminders || []).map(r => r.id === id ? { ...r, done: true } : r) })),
       undoneReminder: (id) =>
@@ -432,30 +552,34 @@ const useStore = create(
               }
             }
           }
-          // עדכון הלוואה — הפחתת יתרה כשמאשרים תשלום (תמיד, גם אם delta=0)
+          // עדכון הלוואה — רק להלוואות ללא לוח סילוקין (לוח סילוקין מחושב אוטומטית)
           let loans = s.loans
-          if (id && String(id).startsWith('l')) {
-            const loan = s.loans.find(l => l.id === id)
+          const loanId = String(id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
+          if (loanId) {
+            const loan = s.loans.find(l => l.id === loanId)
             if (loan) {
-              let newBalance
-              if (loan.paymentSchedule?.length) {
-                const entry = loan.paymentSchedule.find(p => p.date === date)
-                newBalance = entry != null ? entry.remainingBalance : (() => {
-                  const paymentAmt = Math.abs(delta) || loan.monthlyPayment || 0
-                  const currentBalance = loan.balanceOverride != null ? loan.balanceOverride : (loan.totalAmount || 0)
-                  return Math.max(0, Math.round(currentBalance - paymentAmt))
-                })()
-              } else {
+              let newBal = null
+              if (loan.balanceOverride != null) {
+                // override ידני — מוריד סכום תשלום
                 const paymentAmt = Math.abs(delta) || loan.monthlyPayment || 0
-                const currentBalance = loan.balanceOverride != null
-                  ? loan.balanceOverride
-                  : (loan.totalAmount || 0) - ((loan.paidCount || 0) * (loan.monthlyPayment || 0))
-                newBalance = Math.max(0, Math.round(currentBalance - paymentAmt))
+                newBal = Math.max(0, Math.round(loan.balanceOverride - paymentAmt))
+              } else if (loan.paymentSchedule?.length) {
+                // לוח סילוקין — מתקדם שורה אחת מעבר לשורה האחרונה שכבר עברה
+                const todayStr2 = new Date().toISOString().split('T')[0]
+                const sorted = [...loan.paymentSchedule].sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+                const lastPastIdx = sorted.reduce((idx, p, i) => p.date && p.date <= todayStr2 ? i : idx, -1)
+                const nextEntry = sorted[lastPastIdx + 1]
+                if (nextEntry?.remainingBalance != null) newBal = Math.round(nextEntry.remainingBalance)
+              } else if (loan.startDate && loan.durationMonths) {
+                // נוסחת שפיצר — סוף החודש כדי לכלול את תאריך החיוב גם אם עוד לא הגיע
+                const endOfMonth = (date || '').slice(0, 7) + '-31'
+                const n = _paymentsAt(loan.startDate, loan.chargeDay, loan.durationMonths, endOfMonth)
+                newBal = _formulaBalance(loan, n)
               }
-              loans = s.loans.map(l => l.id !== id ? l : {
+              loans = s.loans.map(l => l.id !== loanId ? l : {
                 ...l,
                 paidCount: (l.paidCount || 0) + 1,
-                balanceOverride: newBalance,
+                ...(newBal != null ? { balanceOverride: newBal, _prevBalanceOverride: l.balanceOverride ?? null } : {}),
                 _updatedAt: Date.now(),
               })
             }
@@ -487,24 +611,21 @@ const useStore = create(
             }
           }
           // החזרת יתרת הלוואה כשמבטלים אישור תשלום
+          // החזרת יתרת הלוואה — רק להלוואות ללא לוח סילוקין
           let loans = s.loans
-          if (ev.id && String(ev.id).startsWith('l')) {
-            const loan = s.loans.find(l => l.id === ev.id)
+          const unconfLoanId = String(ev.id || '').replace(/_ro$/, '').replace(/_m\d+$/, '')
+          if (unconfLoanId) {
+            const loan = s.loans.find(l => l.id === unconfLoanId)
             if (loan) {
-              let newBalance
-              if (loan.paymentSchedule?.length) {
-                const idx = loan.paymentSchedule.findIndex(p => p.date === ev.date)
-                const prevEntry = idx > 0 ? loan.paymentSchedule[idx - 1] : null
-                newBalance = prevEntry != null ? prevEntry.remainingBalance : (loan.totalAmount || 0)
-              } else {
-                const paymentAmt = Math.abs(ev.delta) || loan.monthlyPayment || 0
-                const currentBalance = loan.balanceOverride != null ? loan.balanceOverride : 0
-                newBalance = currentBalance + paymentAmt
-              }
-              loans = s.loans.map(l => l.id !== ev.id ? l : {
+              loans = s.loans.map(l => l.id !== unconfLoanId ? l : {
                 ...l,
                 paidCount: Math.max(0, (l.paidCount || 0) - 1),
-                balanceOverride: newBalance,
+                balanceOverride: '_prevBalanceOverride' in l ? l._prevBalanceOverride : (
+                  l.balanceOverride != null
+                    ? l.balanceOverride + (Math.abs(ev.delta) || l.monthlyPayment || 0)
+                    : undefined
+                ),
+                _prevBalanceOverride: undefined,
                 _updatedAt: Date.now(),
               })
             }
@@ -531,7 +652,7 @@ const useStore = create(
     }),
     {
       name: 'financial-app-v14',
-      version: 44,
+      version: 47,
       migrate: (state) => {
         // ── v19: accountId fields + e1→e1a/e1b split ──────────────────────
         const loanUpdates = {
@@ -563,7 +684,7 @@ const useStore = create(
         }
         // הסר d1 ו-d3 מחובות, הסר inv7 ו-inv8 מהשקעות
         const cleanedDebts = (state.debts || [])
-          .filter(d => d.id !== 'd1' && d.id !== 'd3')
+          .filter(d => d.id !== 'd1' && d.id !== 'd3' && d.id !== 'd6')
           .map(d => {
             if (d.id === 'd3') return null // שליו הועבר
             return d
@@ -601,11 +722,11 @@ const useStore = create(
           eurRate:         3.6283,
           usdRate:         (state.usdRate && state.usdRate >= 3.0) ? state.usdRate : 3.61, // USD rate נשמר כפי שנשלף מהבנק
           ratesLastFetched: Date.now(),
-          debts: (() => {
-            const ids = debtsWithNursery.map(d => d.id)
-            if (!ids.includes('d6')) return [...debtsWithNursery, { id: 'd6', name: 'אמא — הלוואה 6000 + משכנתא מרץ', amount: 14325, type: 'we_owe', expectedDate: null, notes: '6,000 הלוואה + 7,500 משכנתא מרץ' }]
-            return debtsWithNursery
-          })(),
+          debts: debtsWithNursery,
+          deletedIds: {
+            ...(state.deletedIds || {}),
+            debts: [...new Set([...(state.deletedIds?.debts || []), 'd6'])],
+          },
           investments: investmentsWithFx,
           accounts: (() => {
             const existing = state.accounts || []
@@ -654,6 +775,7 @@ const useStore = create(
             ]
             return existing
               .map(e => {
+                if (e.id === 'e7') return { ...e, usdAmount: 3300 }
                 if (e.id === 'e8') return { ...e, usdAmount: 1250, usdGross: undefined, usdDeductions: '-$425 -$67' }
                 // v37: force CC expenses back to chargeDay 10 and clear test monthlyAmounts
                 if (e.id === 'e_cc1') return { ...e, chargeDay: 10, amount: 20000, monthlyAmounts: {} }
@@ -684,6 +806,7 @@ const useStore = create(
               if (l.id === 'l12') return { ...l, totalAmount: 40000, monthlyPayment: 666, chargeDay: 10, durationMonths: 60, interestRate: 0, startDate: '2024-02-28' }
               if (l.id === 'l3')  return { ...l, totalAmount: 100000, monthlyPayment: 1920, interestRate: 6.0, interestType: 'fixed', startDate: '2021-11-18' }
               if (l.id === 'l2')  return { ...l, totalAmount: null, monthlyPayment: 5793, durationMonths: null, startDate: null, balanceOverride: 530361 }
+              if (l.id === 'l19' || l.id === 'l20') return { ...l, startDate: '2026-04-20', chargeDay: 20, durationMonths: 36, totalAmount: 30000, monthlyPayment: 833, balanceOverride: 29167, interestRate: 0, interestType: 'fixed' }
               return l
             })
             const ids = base.map(l => l.id)
@@ -729,17 +852,46 @@ export function patchCloudState(state) {
     s.investments = [...invs, { id: 'inv12', name: 'קופת גמל אביגיל', value: 0, type: 'savings', owner: 'יעל' }]
   }
 
-  // הסרת הלוואות דיסקונט כפולות שחוזרות מהענן
-  if (s.loans) {
-    s.loans = s.loans.filter(l => l.id !== 'l13' && l.id !== 'l10' && l.id !== 'l11' && l.name !== 'דיסקונט תומר' && l.name !== 'דיסקונט יעל')
+  // הסרת הלוואות דיסקונט — ושמירת ה-IDs ב-deletedIds כדי שלא יחזרו דרך rescue
+  {
+    const BLOCKED_LOAN_IDS = ['l10', 'l11', 'l13', 'l1775055941589']
+    const BLOCKED_LOAN_NAMES = ['דיסקונט תומר', 'דיסקונט יעל']
+    const isBlocked = l => BLOCKED_LOAN_IDS.includes(l.id) || BLOCKED_LOAN_NAMES.includes((l.name || '').trim())
+    if (s.loans) {
+      const dynIds = s.loans.filter(isBlocked).map(l => l.id).filter(Boolean)
+      s.loans = s.loans.filter(l => !isBlocked(l))
+      const prev = s.deletedIds?.loans || []
+      s.deletedIds = { ...(s.deletedIds || {}), loans: [...new Set([...prev, ...BLOCKED_LOAN_IDS, ...dynIds])] }
+    } else {
+      const prev = s.deletedIds?.loans || []
+      s.deletedIds = { ...(s.deletedIds || {}), loans: [...new Set([...prev, ...BLOCKED_LOAN_IDS])] }
+    }
+  }
+
+  // הסרת d6 — "אמא הלוואה + משכנתא מרץ" — שנמחק לצמיתות
+  {
+    const BLOCKED_DEBT_IDS = ['d6']
+    const isBlockedDebt = d => BLOCKED_DEBT_IDS.includes(d.id)
+    if (s.debts) {
+      s.debts = s.debts.filter(d => !isBlockedDebt(d))
+    }
+    const prevDebts = s.deletedIds?.debts || []
+    s.deletedIds = { ...(s.deletedIds || {}), debts: [...new Set([...prevDebts, ...BLOCKED_DEBT_IDS])] }
+  }
+
+  // force usdAmount for USD expenses that may have 0 in cloud
+  if (s.expenses) {
+    s.expenses = s.expenses.map(e => {
+      if (e.id === 'e7') return { ...e, usdAmount: 3300 }
+      if (e.id === 'e8') return { ...e, usdAmount: 1250, usdGross: undefined, usdDeductions: '-$425 -$67' }
+      return e
+    })
   }
 
   if (!s.reminders) s.reminders = []
   if (!s.dismissedEvents) s.dismissedEvents = []
 
-  // v43: תיקון שער יורו שגוי שנשמר בענן — מאכץ שיעור נכון מבנק ישראל
-  s.eurRate = 3.6283
-  s.ratesLastFetched = Date.now()
+  // v43: תיקון שער יורו שגוי (הוסר — כבר לא כופים ערך קבוע)
 
   return s
 }

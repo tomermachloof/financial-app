@@ -198,9 +198,13 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
           : (ws.setLocation
             ? `${escapeHtml(ws.setLocation)}${ws.setDistanceKm != null ? ` (${ws.setDistanceKm} ק״מ)` : ''}<br><span style="font-size:10px;">${ws.setIsAboveThreshold ? '🚗 מהבית' : '📍 מהסט'}</span>`
             : genericLoc ? `📍 ${escapeHtml(genericLoc)}` : '—')
-        const detailText = isCommercial
+        const baseDetail = isCommercial
           ? escapeHtml(ws.commercialNote || '—')
           : describeSessionHtml(ws)
+        const noteHtml = ws.notes
+          ? `<br><span style="font-style:italic;color:#6b7280;font-size:11px;">📝 ${escapeHtml(ws.notes)}</span>`
+          : ''
+        const detailText = baseDetail + noteHtml
         return `
         <tr>
           <td class="num">${i + 1}</td>

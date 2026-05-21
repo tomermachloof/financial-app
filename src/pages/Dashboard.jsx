@@ -212,7 +212,6 @@ export default function Dashboard() {
   const calcDelta = (e) => {
     if (e.noBalanceEffect || e.paidViaCredit || isFriendLoan(e) || !e.accountId) return 0
     if (e.currency === 'USD') return e.amount >= 0 ? (e.usdAmount || 0) : -(e.usdAmount || 0)
-    if (e.effectiveAmount != null) return e.amount >= 0 ? e.effectiveAmount : -e.effectiveAmount
     return e.amount
   }
 
@@ -644,8 +643,8 @@ export default function Dashboard() {
                 onAccountEdit={() => setAccountPickerFor(e)}
                 onAmountEdit={(e.type === 'expense' || e.type === 'loan' || e.type === 'rental') ? (newAmt) => {
                   const baseId = cleanId(e.id)
-                  const targetDateStr = e.rolledOver ? e.originalDateStr : e.dateStr || todayStr
-                  const mKey = targetDateStr.slice(0, 7)
+                  const targetDate = e.rolledOver ? e.originalDate : e.date
+                  const mKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`
                   const absAmt = Math.abs(newAmt)
                   // future income handled separately — always permanent
                   if (e.type === 'expense' && e.category === 'credit') {
@@ -669,12 +668,24 @@ export default function Dashboard() {
                         }
                         updateLoan(baseId, upd)
                       }
-                      else if (e.type === 'expense') updateExpense(baseId, { amount: absAmt })
-                      else if (e.type === 'rental')  updateRentalIncome(baseId, { amount: absAmt })
+                      else if (e.type === 'expense') {
+                        const exp = expenses.find(ex => ex.id === baseId)
+                        const clearedMonthly = exp?.monthlyAmounts ? { ...exp.monthlyAmounts } : {}
+                        delete clearedMonthly[mKey]
+                        updateExpense(baseId, { amount: absAmt, monthlyAmounts: clearedMonthly })
+                      }
+                      else if (e.type === 'rental') {
+                        const ri = rentalIncome.find(r => r.id === baseId)
+                        const clearedMonthly = ri?.monthlyAmounts ? { ...ri.monthlyAmounts } : {}
+                        delete clearedMonthly[mKey]
+                        updateRentalIncome(baseId, ri?.currency === 'USD'
+                          ? { usdAmount: absAmt, monthlyAmounts: clearedMonthly }
+                          : { amount: absAmt, monthlyAmounts: clearedMonthly })
+                      }
                     },
                     applyOneTime: () => {
-                      if (e.type === 'loan')         updateLoanMonthlyAmount(baseId, mKey, absAmt)
-                      else if (e.type === 'expense') updateExpenseMonthlyAmount(baseId, mKey, absAmt)
+                      if (e.type === 'loan')         updateLoanMonthlyAmount(baseId, mKey, e.currency === 'USD' ? Math.round(absAmt * usdRate) : absAmt)
+                      else if (e.type === 'expense') updateExpenseMonthlyAmount(baseId, mKey, e.currency === 'USD' ? Math.round(absAmt * usdRate) : absAmt)
                       else if (e.type === 'rental')  updateRentalMonthlyAmount(baseId, mKey, absAmt)
                     },
                   })
@@ -682,7 +693,11 @@ export default function Dashboard() {
                 onPartial={(e.type === 'rental' || e.type === 'future') ? () => {
                   const baseId = cleanId(e.id)
                   const src = e.type === 'rental' ? rentalIncome.find(r => r.id === baseId) : futureIncome.find(f => f.id === baseId)
-                  if (src) setPartialItem({ ...src, _type: e.type === 'rental' ? 'rental' : 'future' })
+                  if (src) {
+                    const targetDate = e.rolledOver ? e.originalDate : e.date
+                    const mKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`
+                    setPartialItem({ ...src, _type: e.type === 'rental' ? 'rental' : 'future', _mKey: mKey })
+                  }
                 } : undefined}
                 onConfirm={() => {
                   const id      = e.rolledOver ? e.id.replace('_ro','') : e.id
@@ -1423,8 +1438,8 @@ export default function Dashboard() {
               else if (ev.type === 'rental')  updateRentalIncome(baseId, { accountId: newId })
             },
             applyOneTime: () => {
-              const targetDateStr = ev.rolledOver ? ev.originalDateStr : ev.dateStr || `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}-${String(new Date().getDate()).padStart(2,'0')}`
-              const mKey = targetDateStr.slice(0, 7)
+              const targetDate = ev.rolledOver ? ev.originalDate : ev.date
+              const mKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`
               if (ev.type === 'loan')         updateLoanMonthlyAccount(baseId, mKey, newId)
               else if (ev.type === 'expense') updateExpenseMonthlyAccount(baseId, mKey, newId)
               else if (ev.type === 'rental')  updateRentalMonthlyAccount(baseId, mKey, newId)
@@ -1518,7 +1533,7 @@ export default function Dashboard() {
       {undoStack.length > 0 && (
         <button
           onClick={handleUndo}
-          className="fixed bottom-20 left-4 z-50 flex items-center gap-2 px-4 py-2.5 rounded-full bg-gray-800 text-white shadow-lg active:bg-gray-700 transition-all"
+          className="fixed bottom-36 left-4 z-50 flex items-center gap-2 px-4 py-2.5 rounded-full bg-gray-800 text-white shadow-lg active:bg-gray-700 transition-all"
           style={{ animation: 'modalPopIn 0.3s ease-out' }}
         >
           <span className="text-base">↩</span>
@@ -1567,7 +1582,10 @@ function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowA
   const canEditAmount = !confirmed && !!onAmountEdit
   const startEditAmount = () => {
     if (!canEditAmount) return
-    setAmountDraft(String(Math.abs(Math.round(event.amount || 0))))
+    const displayNum = isUSD
+      ? Math.round(event.usdAmountBase || event.usdGross || event.usdAmount || 0)
+      : Math.abs(Math.round(event.amountBase != null ? event.amountBase : (event.amount || 0)))
+    setAmountDraft(String(displayNum))
     setEditingAmount(true)
   }
   const commitEditAmount = () => {
@@ -1666,6 +1684,9 @@ function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowA
                 {event.overrideVsBase === 'higher' ? '↑' : '↓'} {formatILS(event.overrideBase)}
               </p>
             )}
+            {event.extrasAmt > 0 && (
+              <p className="text-[10px] text-gray-400 mt-0.5 text-right">כולל {formatILS(event.extrasAmt)} {event.extrasLabel}</p>
+            )}
             {isUSD && event.usdDeductions && (
               <p className="text-xs">
                 <span className="bg-yellow-200 text-yellow-800 font-semibold px-1 rounded text-xs">({event.usdDeductions})</span>
@@ -1691,7 +1712,10 @@ function EventRow({ event, highlight, confirmed, onConfirm, onUnconfirm, onShowA
           )}
           {onConfirm && (
             <button
-              onClick={onConfirm}
+              onClick={() => {
+                if (editingAmount) { commitEditAmount(); return }
+                onConfirm()
+              }}
               className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 hover:bg-green-100 hover:text-green-600 transition-colors flex-shrink-0"
             >
               ✓

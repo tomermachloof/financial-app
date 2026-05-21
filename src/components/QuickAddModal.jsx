@@ -84,6 +84,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
   const e  = (key) => errors.includes(key)
 
   const ilsAccounts = accounts.filter(a => a.currency !== 'USD')
+  const usdAccounts = accounts.filter(a => a.currency === 'USD' || a.usdBalance > 0)
   const todayStr    = new Date().toISOString().split('T')[0]
 
   const pick = (id) => {
@@ -152,7 +153,11 @@ export default function QuickAddModal({ onClose, editTarget }) {
               setPermPrompt({
                 name: item.name,
                 applyPermanent: () => {
-                  const expUpd = item.currency === 'USD' ? { ...metaUpd, usdAmount: amount } : { ...metaUpd, amount }
+                  const clearedMonthly = item.monthlyAmounts ? { ...item.monthlyAmounts } : {}
+                  delete clearedMonthly[mKey]
+                  const expUpd = item.currency === 'USD'
+                    ? { ...metaUpd, usdAmount: amount, monthlyAmounts: clearedMonthly }
+                    : { ...metaUpd, amount, monthlyAmounts: clearedMonthly }
                   updateExpense(item.id, expUpd)
                   flash()
                 },
@@ -173,6 +178,9 @@ export default function QuickAddModal({ onClose, editTarget }) {
                 name: item.name,
                 applyPermanent: () => {
                   if (item.currency === 'USD') metaUpd.usdAmount = amount; else metaUpd.amount = amount
+                  const clearedMonthly = item.monthlyAmounts ? { ...item.monthlyAmounts } : {}
+                  delete clearedMonthly[mKey]
+                  metaUpd.monthlyAmounts = clearedMonthly
                   updateRentalIncome(item.id, metaUpd)
                   flash()
                 },
@@ -191,12 +199,13 @@ export default function QuickAddModal({ onClose, editTarget }) {
           }
           flash(); break
         }
+        const owner = fv('owner') || 'tomer'
         if (isMonthly && isIncome) {
-          addRentalIncome({ name: fv('name'), amount, chargeDay: parseInt(fv('chargeDay')), accountId: fv('accountId') || null })
+          addRentalIncome({ name: fv('name'), amount, chargeDay: parseInt(fv('chargeDay')), accountId: fv('accountId') || null, owner })
         } else if (isMonthly && !isIncome) {
           addExpense({ name: fv('name'), amount, chargeDay: parseInt(fv('chargeDay')), category: 'other', accountId: fv('accountId') || null, destAccountId: fv('destAccountId') || null, note: '', monthlyAmounts: {} })
         } else if (!isMonthly && isIncome) {
-          addFutureIncome({ name: fv('name'), amount, expectedDate: fv('date') || null, accountId: fv('accountId') || null })
+          addFutureIncome({ name: fv('name'), amount, expectedDate: fv('date') || null, accountId: fv('accountId') || null, owner })
         } else {
           addFutureIncome({ name: fv('name'), amount: -amount, expectedDate: fv('date'), isPayment: true, accountId: fv('accountId') || null })
         }
@@ -251,20 +260,28 @@ export default function QuickAddModal({ onClose, editTarget }) {
 
       case 'transfer': {
         const amount = parseFloat(fv('amount'))
+        const toId   = fv('toId')
         const errs = []
-        if (!fv('fromId'))                        errs.push('fromId')
-        if (!fv('toId'))                          errs.push('toId')
-        if (!amount)                              errs.push('amount')
-        if (fv('fromId') && fv('fromId') === fv('toId')) errs.push('toId')
+        if (!fv('fromId'))                           errs.push('fromId')
+        if (!toId)                                   errs.push('toId')
+        if (!amount)                                 errs.push('amount')
+        if (fv('fromId') && fv('fromId') === toId)  errs.push('toId')
         if (errs.length) { setErrors(errs); return }
         const from = accounts.find(a => a.id === fv('fromId'))
-        const to   = accounts.find(a => a.id === fv('toId'))
-        if (from.currency === 'USD') {
-          updateAccount(fv('fromId'), { usdBalance: (from.usdBalance || 0) - amount })
-          updateAccount(fv('toId'),   { usdBalance: (to.usdBalance   || 0) + amount })
-        } else {
+        if (toId.startsWith('inv:')) {
+          const invId = toId.slice(4)
+          const inv   = investments.find(i => i.id === invId)
           updateAccount(fv('fromId'), { balance: (from.balance || 0) - amount })
-          updateAccount(fv('toId'),   { balance: (to.balance   || 0) + amount })
+          updateInvestment(invId, { value: (inv?.value || 0) + amount })
+        } else {
+          const to = accounts.find(a => a.id === toId)
+          if (from.currency === 'USD') {
+            updateAccount(fv('fromId'), { usdBalance: (from.usdBalance || 0) - amount })
+            updateAccount(toId,         { usdBalance: (to.usdBalance   || 0) + amount })
+          } else {
+            updateAccount(fv('fromId'), { balance: (from.balance || 0) - amount })
+            updateAccount(toId,         { balance: (to.balance   || 0) + amount })
+          }
         }
         flash(); break
       }
@@ -516,6 +533,18 @@ export default function QuickAddModal({ onClose, editTarget }) {
               </button>
             ))}
           </div>}
+          {!isEditMode && isIncome && (
+            <div className="flex gap-2 mb-4">
+              <button type="button" onClick={() => sv('owner', 'tomer')}
+                className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors ${(fv('owner') || 'tomer') === 'tomer' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                תומר
+              </button>
+              <button type="button" onClick={() => sv('owner', 'yael')}
+                className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors ${fv('owner') === 'yael' ? 'bg-pink-500 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                יעל
+              </button>
+            </div>
+          )}
           <F label="שם" name="name" errors={errors}>
             <Inp err={e('name')} value={fv('name')} onChange={ev => sv('name', ev.target.value)} />
           </F>
@@ -549,7 +578,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
           <F label={isIncome ? 'חשבון יעד' : 'חשבון חיוב'} name="accountId" errors={errors}>
             <Sel value={fv('accountId')} onChange={ev => sv('accountId', ev.target.value)}>
               <option value="">לא מקושר</option>
-              {ilsAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              {(isUSD ? usdAccounts : ilsAccounts).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </Sel>
           </F>
           {isMonthly && !isIncome && (
@@ -660,7 +689,10 @@ export default function QuickAddModal({ onClose, editTarget }) {
       </>)
 
       case 'transfer': {
+        const fromAcc    = accounts.find(a => a.id === fv('fromId'))
+        const isFromUSD  = fromAcc?.currency === 'USD'
         const compatible = fv('fromId') ? accounts.filter(a => a.id !== fv('fromId')) : accounts
+        const ilsInvestments = investments.filter(i => !i.currency || i.currency === 'ILS')
         return (<>
           <F label="מחשבון" name="fromId" errors={errors}>
             <Sel err={e('fromId')} value={fv('fromId')} onChange={ev => { sv('fromId', ev.target.value); sv('toId', '') }}>
@@ -668,10 +700,17 @@ export default function QuickAddModal({ onClose, editTarget }) {
               {accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.currency === 'USD' ? `$${(a.usdBalance||0).toLocaleString()}` : `₪${(a.balance||0).toLocaleString()}`})</option>)}
             </Sel>
           </F>
-          <F label="לחשבון" name="toId" errors={errors}>
+          <F label="לחשבון / השקעה" name="toId" errors={errors}>
             <Sel err={e('toId')} value={fv('toId')} onChange={ev => sv('toId', ev.target.value)}>
               <option value="">בחר</option>
-              {compatible.map(a => <option key={a.id} value={a.id}>{a.name} ({a.currency === 'USD' ? `$${(a.usdBalance||0).toLocaleString()}` : `₪${(a.balance||0).toLocaleString()}`})</option>)}
+              <optgroup label="חשבונות בנק">
+                {compatible.map(a => <option key={a.id} value={a.id}>{a.name} ({a.currency === 'USD' ? `$${(a.usdBalance||0).toLocaleString()}` : `₪${(a.balance||0).toLocaleString()}`})</option>)}
+              </optgroup>
+              {!isFromUSD && ilsInvestments.length > 0 && (
+                <optgroup label="השקעות">
+                  {ilsInvestments.map(i => <option key={i.id} value={`inv:${i.id}`}>{i.name} — ₪{(i.value||0).toLocaleString()}</option>)}
+                </optgroup>
+              )}
             </Sel>
           </F>
           <F label="סכום" name="amount" errors={errors}>

@@ -89,6 +89,23 @@ export default {
       }
     }
 
+    // ── התראת מחיקה ──
+    if (url.pathname === '/notify-delete' && request.method === 'POST') {
+      try {
+        const { type, name, id } = await request.json()
+        const label = type || 'פריט'
+        const itemName = name || id || '?'
+        await sendEmailFallback(
+          env,
+          `⚠️ נמחק: ${label}`,
+          `הפריט "${itemName}" (${label}) נמחק מהאפליקציה.\n\nמזהה: ${id || '?'}\nזמן: ${new Date().toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' })}`
+        )
+        return new Response('ok', { status: 200, headers: cors })
+      } catch (err) {
+        return new Response('error: ' + (err && err.message || String(err)), { status: 500, headers: cors })
+      }
+    }
+
     // ── בדיקת התראות (ידני) ──
     if (url.pathname === '/test') {
       try {

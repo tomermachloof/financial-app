@@ -58,7 +58,7 @@ async function saveCookies(cookies) {
 // ── הפעלת הדפדפן ────────────────────────────────────────────────
 // CI: Chrome של Ubuntu. לוקאל: Chrome של puppeteer עם userDataDir.
 const browserOpts = {
-  headless: true,
+  headless: IS_CI ? true : false,
   args: ['--no-sandbox', '--disable-setuid-sandbox'],
   ...(USER_DATA_DIR && { userDataDir: USER_DATA_DIR }),
   ...(process.env.PUPPETEER_EXECUTABLE_PATH && {
@@ -108,6 +108,7 @@ const scraper = createScraper({
   startDate: new Date(new Date().setDate(1)),
   combineInstallments: false,
   browser,
+  timeout: 180000, // 3 דקות — מספיק זמן להזנת OTP
 });
 
 console.log('מתחבר לפועלים...');
@@ -154,11 +155,17 @@ if (readErr || !data) { console.error('שגיאת קריאה:', readErr); proces
 const state = data.state_v2;
 const oldBalance = state.accounts?.find(a => a.id === ACCOUNT_ID)?.balance;
 
+const now = Date.now();
 const updatedAccounts = state.accounts.map(a =>
-  a.id !== ACCOUNT_ID ? a : { ...a, balance: newBalance }
+  a.id !== ACCOUNT_ID ? a : { ...a, balance: newBalance, lastScraped: now }
 );
 
-const now = Date.now();
+// כתיבה נפרדת — ל-bank_balances, ללא תלות ב-lastSaved של ה-state הכללי
+await supabase.from('app_state').upsert({
+  id: 'bank_balances',
+  state: { ba1: { balance: newBalance, syncedAt: now } },
+  updated_at: new Date().toISOString(),
+});
 const { error: writeErr } = await supabase
   .from('app_state')
   .update({
