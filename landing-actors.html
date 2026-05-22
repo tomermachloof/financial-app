@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ניהול הכנסות לשחקנים</title>
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; font-family:'Heebo',sans-serif; }
+    html { scroll-behavior:auto; }
+    body { -webkit-font-smoothing:antialiased; color:#1a1a1a; overflow-x:hidden; background:#0a0a0a; }
+
+    /* ── Cinematic Canvas ── */
+    #bg-canvas {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* ── All content above canvas ── */
+    .page-wrap { position: relative; z-index: 1; }
+
+    /* ── Split section ── */
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      min-height: 100vh;
+      position: relative;
+      overflow: hidden;
+    }
+    .split-img {
+      position: relative;
+      overflow: hidden;
+    }
+    .split-img img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transform-origin: center center;
+      will-change: transform;
+    }
+    .split-content {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 4rem 3.5rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* ── Depth layers ── */
+    .depth-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      will-change: transform;
+    }
+    .depth-bg {
+      opacity: 0.15;
+      filter: blur(8px) saturate(1.5);
+      transform: scale(1.15);
+    }
+    .depth-mid {
+      opacity: 0.08;
+      filter: blur(3px);
+      transform: scale(1.08);
+    }
+
+    /* ── Color themes ── */
+    .bg-orange   { background: linear-gradient(160deg,#ea580c,#f97316 50%,#fb923c); }
+    .bg-blue     { background: linear-gradient(160deg,#1e40af,#2563eb 50%,#3b82f6); }
+    .bg-green    { background: linear-gradient(160deg,#047857,#059669 50%,#10b981); }
+    .bg-yellow   { background: linear-gradient(160deg,#b45309,#d97706 50%,#f59e0b); }
+    .bg-dark     { background: linear-gradient(160deg,#0f172a,#1e293b 50%,#334155); }
+    .bg-red      { background: linear-gradient(160deg,#991b1b,#dc2626 50%,#ef4444); }
+    .bg-indigo   { background: linear-gradient(160deg,#312e81,#4338ca 50%,#6366f1); }
+
+    /* ── Image overlay ── */
+    .img-overlay::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+    }
+    .img-overlay-right::after { background: linear-gradient(to right, rgba(0,0,0,0.2), transparent 50%); }
+    .img-overlay-left::after  { background: linear-gradient(to left, rgba(0,0,0,0.2), transparent 50%); }
+
+    /* ── Glass ── */
+    .glass { background:rgba(255,255,255,0.12); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,0.18); }
+    .glass-strong { background:rgba(255,255,255,0.92); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border:1px solid rgba(255,255,255,0.5); box-shadow:0 8px 32px rgba(0,0,0,0.08); }
+
+    /* ── Name badge ── */
+    .name-badge {
+      position: absolute; bottom: 24px; right: 24px; z-index: 5;
+      background: rgba(0,0,0,0.55); backdrop-filter: blur(14px);
+      padding: 10px 22px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    /* ── Full-width sections ── */
+    .full-section { padding:5rem 3.5rem; position:relative; overflow:hidden; }
+    .full-inner { max-width:900px; margin:0 auto; }
+
+    /* ── Section entrance states ── */
+    .section-block { will-change: transform, opacity; }
+
+    /* ── Shimmer ── */
+    .shimmer { position:relative; overflow:hidden; }
+    .shimmer::after { content:''; position:absolute; inset:0; background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,0.25) 50%,transparent 70%); transform:translateX(-100%); animation: sh 3s ease-in-out infinite; }
+    @keyframes sh { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
+
+    /* ── Pulse ring ── */
+    .pulse-ring { animation: pr 2.5s ease-in-out infinite; }
+    @keyframes pr { 0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,0.4)} 50%{box-shadow:0 0 0 14px rgba(255,255,255,0)} }
+
+    /* ── Float ── */
+    .float-slow { animation: fl 6s ease-in-out infinite; }
+    @keyframes fl { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+
+    /* ── Hero stats ── */
+    .stats-row { display:flex; gap:2.5rem; margin-top:3rem; }
+
+    /* ── Scroll progress bar ── */
+    #progress-bar {
+      position: fixed;
+      top: 0; left: 0;
+      height: 3px;
+      background: linear-gradient(to right, #fb923c, #f97316, #ea580c);
+      z-index: 9999;
+      transform-origin: left;
+      transform: scaleX(0);
+      box-shadow: 0 0 10px rgba(251, 146, 60, 0.6);
+    }
+
+    /* ── Cinematic vignette overlay ── */
+    .vignette {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.35) 100%);
+    }
+
+    /* ── Responsive ── */
+    @media(max-width:900px) {
+      .split { grid-template-columns:1fr !important; min-height:auto; }
+      .split-img { height:55vh; min-height:350px; }
+      .split-content { padding:2.5rem 1.5rem; }
+      .split .order-mob-first { order:-1; }
+      .full-section { padding:3rem 1.5rem; }
+      .mob-grid-1 { grid-template-columns:1fr !important; }
+      .stats-row { gap:1.5rem !important; }
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+<div id="progress-bar"></div>
+<div class="vignette"></div>
+
+<div class="page-wrap">
+
+  <!-- ═══════════════ HERO ═══════════════ -->
+  <section class="split" id="hero">
+    <div class="split-img img-overlay img-overlay-right" style="position:relative;">
+      <!-- Depth layers -->
+      <img class="depth-layer depth-bg" src="yael-hero.png" alt="" aria-hidden="true">
+      <img class="depth-layer depth-mid" src="yael-hero.png" alt="" aria-hidden="true">
+      <!-- Main image -->
+      <img id="hero-img" src="yael-hero.png" alt="יעל אלקנה" style="position:relative;z-index:2;">
+      <div class="name-badge" style="z-index:6;" id="hero-badge">
+        <div style="font-size:16px;font-weight:700;color:#fff;">יעל אלקנה</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.55);">שחקנית</div>
+      </div>
+    </div>
+
+    <div class="split-content bg-orange" id="hero-content">
+      <div style="max-width:480px;" id="hero-text">
+        <div class="glass" id="hero-badge-tag" style="display:inline-flex;align-items:center;gap:8px;border-radius:9999px;padding:6px 18px;margin-bottom:2rem;opacity:0;transform:translateY(20px)">
+          <span style="width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 10px #fff"></span>
+          <span style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.8);">מערכת ניהול הכנסות לשחקנים</span>
+        </div>
+
+        <h1 id="hero-h1" style="font-size:clamp(2.4rem,5vw,3.6rem);font-weight:900;color:#fff;line-height:1.1;margin-bottom:1.25rem;opacity:0;transform:translateY(30px);">
+          את יודעת כמה<br>
+          <span style="color:#1a0a04;">באמת מגיע לך?</span>
+        </h1>
+
+        <p id="hero-p" style="font-size:1.05rem;line-height:1.7;color:rgba(255,255,255,0.8);margin-bottom:2.5rem;opacity:0;transform:translateY(24px);">
+          שחקנים מתנהלים עם פתקים, הודעות וואטסאפ וזיכרון — ומפסידים כסף בלי לדעת. בנינו מערכת שפותרת את זה.
+        </p>
+
+        <a href="#s1" id="hero-cta" class="shimmer pulse-ring" style="display:inline-flex;align-items:center;gap:8px;background:#1a0a04;color:#fb923c;font-weight:700;font-size:1.05rem;padding:15px 38px;border-radius:16px;text-decoration:none;opacity:0;transform:translateY(20px);">
+          ראה איך זה עובד ↓
+        </a>
+
+        <div class="stats-row" id="hero-stats" style="opacity:0;transform:translateY(20px);">
+          <div><div id="stat1" style="font-size:1.8rem;font-weight:800;color:#fff">0%</div><div style="font-size:11px;color:rgba(255,255,255,0.5)">דיוק בחישוב</div></div>
+          <div style="width:1px;background:rgba(255,255,255,0.2)"></div>
+          <div><div id="stat2" style="font-size:1.8rem;font-weight:800;color:#fff">∞</div><div style="font-size:11px;color:rgba(255,255,255,0.5)">פתקים נחוצים</div></div>
+          <div style="width:1px;background:rgba(255,255,255,0.2)"></div>
+          <div><div style="font-size:1.8rem;font-weight:800;color:#fff">PDF</div><div style="font-size:11px;color:rgba(255,255,255,0.5)">בלחיצה אחת</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ PROBLEM STRIP ═══════════════ -->
+  <section class="bg-blue section-block" id="problem-strip" style="padding:2.5rem 0;position:relative;">
+    <div style="max-width:900px;margin:0 auto;padding:0 24px;text-align:center;">
+      <h2 style="font-size:clamp(1.2rem,2.5vw,1.5rem);font-weight:800;color:#fff;margin-bottom:1rem;">ככה נראית ההתנהלות של רוב השחקנים היום:</h2>
+      <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px;">
+        <span class="glass prob-tag" style="padding:8px 20px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;">📝 פתקים בטלפון</span>
+        <span class="glass prob-tag" style="padding:8px 20px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;">💬 הודעות שנקברו</span>
+        <span class="glass prob-tag" style="padding:8px 20px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;">🧠 זיכרון חלקי</span>
+        <span class="glass prob-tag" style="padding:8px 20px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;">🤷 ״כמה שילמו לי?״</span>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ STEP 1 — חוזה ═══════════════ -->
+  <section id="s1" class="split section-block" style="grid-template-columns:1fr 1fr;">
+    <div class="split-content bg-green">
+      <div style="max-width:440px;" class="content-inner">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#fef3c7;background:rgba(0,0,0,0.2);">😩 הבעיה</span>
+        <h2 style="font-size:clamp(1.5rem,3vw,2.2rem);font-weight:800;color:#fff;margin:0.75rem 0 0.4rem;">חוזה חדש הגיע — צריך לעבור עליו ולהקליד ידנית</h2>
+        <p style="font-size:15px;color:rgba(255,255,255,0.7);margin-bottom:2rem;">לוקח זמן, משאיר מקום לטעויות, ולפעמים לא ברור מה בדיוק סוכם.</p>
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#065f46;background:rgba(255,255,255,0.85);">✅ הפתרון</span>
+        <h3 style="font-size:clamp(1.1rem,2.2vw,1.4rem);font-weight:700;color:#fff;margin:0.75rem 0 1.5rem;">גורר את החוזה → המערכת קוראת ומבינה</h3>
+        <div class="glass" style="border-radius:20px;padding:1.5rem;margin-bottom:1.5rem;">
+          <div style="border:2px dashed rgba(255,255,255,0.3);border-radius:14px;padding:2rem;text-align:center;background:rgba(255,255,255,0.05);">
+            <div class="float-slow" style="font-size:3rem;margin-bottom:0.4rem;">📄</div>
+            <p style="font-size:1rem;font-weight:700;color:#fff;">גורר PDF או תמונה</p>
+            <p style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:4px;">המערכת קוראת את החוזה</p>
+          </div>
+        </div>
+        <div class="glass-strong" style="border-radius:16px;padding:1.25rem;">
+          <div style="font-size:11px;font-weight:700;color:#a8a29e;margin-bottom:10px;">שדות שמולאו אוטומטית מהחוזה:</div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;align-items:center;gap:10px;font-size:13px"><span style="color:#059669;font-weight:700">✓</span><span style="color:#a8a29e;width:90px;flex-shrink:0">שם פרויקט:</span><span style="font-weight:700;color:#1a1a1a">הסדרה — עונה 3</span></div>
+            <div style="display:flex;align-items:center;gap:10px;font-size:13px"><span style="color:#059669;font-weight:700">✓</span><span style="color:#a8a29e;width:90px;flex-shrink:0">סכום ליום:</span><span style="font-weight:700;color:#1a1a1a">₪3,200</span></div>
+            <div style="display:flex;align-items:center;gap:10px;font-size:13px"><span style="color:#059669;font-weight:700">✓</span><span style="color:#a8a29e;width:90px;flex-shrink:0">ימי צילום:</span><span style="font-weight:700;color:#1a1a1a">12 ימים</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="split-img img-overlay img-overlay-left order-mob-first parallax-img" style="position:relative;">
+      <img src="yael-hero.png" alt="יעל אלקנה" style="will-change:transform;">
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ STEP 2 — סוגי פרויקטים ═══════════════ -->
+  <section class="full-section bg-blue section-block">
+    <div class="full-inner">
+      <div style="text-align:center;margin-bottom:2.5rem;" class="content-inner">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#fca5a5;background:rgba(255,255,255,0.1);">😩 כל פרויקט שונה — אבל אתה מנהל את כולם אותו דבר</span>
+        <h2 style="font-size:clamp(1.5rem,3.5vw,2.2rem);font-weight:800;color:#fff;margin:0.75rem 0 0.4rem;">כל סוג פרויקט עם שדות מותאמים בדיוק</h2>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;" class="mob-grid-1">
+        <div class="glass project-card" style="border-radius:20px;overflow:hidden;">
+          <div style="height:4px;background:linear-gradient(to left,#60a5fa,#93c5fd)"></div>
+          <div style="padding:1.5rem;">
+            <div style="font-size:1.5rem;margin-bottom:0.6rem;">🎥</div>
+            <h4 style="font-size:1.05rem;font-weight:700;color:#fff;margin-bottom:0.5rem;">טלוויזיה וקולנוע</h4>
+            <ul style="list-style:none;font-size:13px;color:rgba(255,255,255,0.65);display:flex;flex-direction:column;gap:6px;">
+              <li>• ימי צילום עם שעות</li>
+              <li>• תשלום חודשי + תוספות</li>
+              <li>• מע"מ ועמלת סוכן</li>
+            </ul>
+          </div>
+        </div>
+        <div class="glass project-card" style="border-radius:20px;overflow:hidden;">
+          <div style="height:4px;background:linear-gradient(to left,#a78bfa,#c4b5fd)"></div>
+          <div style="padding:1.5rem;">
+            <div style="font-size:1.5rem;margin-bottom:0.6rem;">🎭</div>
+            <h4 style="font-size:1.05rem;font-weight:700;color:#fff;margin-bottom:0.5rem;">תיאטרון</h4>
+            <ul style="list-style:none;font-size:13px;color:rgba(255,255,255,0.65);display:flex;flex-direction:column;gap:6px;">
+              <li>• הצגות וחזרות</li>
+              <li>• סכום כולל + מעקב</li>
+              <li>• פס התקדמות ויזואלי</li>
+            </ul>
+          </div>
+        </div>
+        <div class="glass project-card" style="border-radius:20px;overflow:hidden;">
+          <div style="height:4px;background:linear-gradient(to left,#fbbf24,#fde68a)"></div>
+          <div style="padding:1.5rem;">
+            <div style="font-size:1.5rem;margin-bottom:0.6rem;">📢</div>
+            <h4 style="font-size:1.05rem;font-weight:700;color:#fff;margin-bottom:0.5rem;">מסחרי וקמפיינים</h4>
+            <ul style="list-style:none;font-size:13px;color:rgba(255,255,255,0.65);display:flex;flex-direction:column;gap:6px;">
+              <li>• לקוח, פלטפורמה, ימים</li>
+              <li>• סכום קבוע לפי הסכם</li>
+              <li>• תיעוד סוגי פעילויות</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ STEP 3 — חישוב ═══════════════ -->
+  <section class="split section-block" style="grid-template-columns:1fr 1fr;">
+    <div class="split-img img-overlay img-overlay-right order-mob-first parallax-img" style="position:relative;">
+      <img src="yael-hero.png" alt="יעל אלקנה" style="will-change:transform;">
+    </div>
+    <div class="split-content bg-yellow">
+      <div style="max-width:440px;" class="content-inner">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;background:rgba(0,0,0,0.2);">😩 הבעיה</span>
+        <h2 style="font-size:clamp(1.5rem,3vw,2.2rem);font-weight:800;color:#fff;margin:0.75rem 0 0.4rem;">לחשב כמה מגיע לך? זה מסובך</h2>
+        <p style="font-size:15px;color:rgba(255,255,255,0.7);margin-bottom:2rem;">סכום ליום, שעות נוספות, תוספות — צריך מחשבון ואקסל ובסוף לא בטוח.</p>
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#065f46;background:rgba(255,255,255,0.85);">✅ הפתרון</span>
+        <h3 style="font-size:clamp(1.1rem,2.2vw,1.4rem);font-weight:700;color:#fff;margin:0.75rem 0 1.5rem;">אתה רק מוסיף תאריכים — המערכת מחשבת הכל</h3>
+        <div class="glass-strong" style="border-radius:16px;overflow:hidden;">
+          <div class="shimmer" style="padding:12px 18px;background:linear-gradient(135deg,#f59e0b,#f97316);display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-weight:700;color:#fff;font-size:14px">🎥 הסדרה — עונה 3</span>
+            <span style="background:rgba(255,255,255,0.2);color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:9999px;">₪3,200 ליום</span>
+          </div>
+          <div style="padding:1rem;">
+            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:0.75rem;">
+              <div style="background:#fafaf9;border-radius:8px;padding:8px 12px;display:flex;align-items:center;justify-content:space-between;font-size:12px;"><span style="color:#78716c">12.04 · 07:00–19:30</span><span style="font-weight:700;color:#1a1a1a">₪3,200</span></div>
+              <div style="background:#fafaf9;border-radius:8px;padding:8px 12px;display:flex;align-items:center;justify-content:space-between;font-size:12px;"><span style="color:#78716c">15.04 · 08:00–22:00</span><span style="font-weight:700;color:#1a1a1a">₪3,200</span></div>
+              <div style="background:#fafaf9;border-radius:8px;padding:8px 12px;display:flex;align-items:center;justify-content:space-between;font-size:12px;"><span style="color:#78716c">20.04 · 06:00–20:00</span><span style="font-weight:700;color:#1a1a1a">₪3,200</span></div>
+            </div>
+            <div style="background:linear-gradient(135deg,#fff7ed,#ffedd5);border-radius:12px;padding:0.75rem 1rem;display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-size:14px;font-weight:600;color:#57534e">סה"כ:</span>
+              <span style="font-size:1.3rem;font-weight:900;color:#ea580c">₪9,600</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ STEP 4 — מרחק ושח"מ ═══════════════ -->
+  <section class="split section-block" style="grid-template-columns:1fr 1fr;">
+    <div class="split-content bg-red">
+      <div style="max-width:440px;" class="content-inner">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;background:rgba(0,0,0,0.2);">😩 הבעיה</span>
+        <h2 style="font-size:clamp(1.5rem,3vw,2.2rem);font-weight:800;color:#fff;margin:0.75rem 0 0.4rem;">מגיע לך על נסיעות — אבל כמה?</h2>
+        <p style="font-size:15px;color:rgba(255,255,255,0.7);margin-bottom:2rem;">לפי חוקי שח"מ יש הבדל אם הזמן מחושב מיציאה מהבית או מהגעה לסט. רוב השחקנים לא יודעים.</p>
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#065f46;background:rgba(255,255,255,0.85);">✅ הפתרון</span>
+        <h3 style="font-size:clamp(1.1rem,2.2vw,1.4rem);font-weight:700;color:#fff;margin:0.75rem 0 1.5rem;">מזין כתובת — המערכת מחשבת לפי חוקי שח"מ</h3>
+        <div class="glass-strong" style="border-radius:16px;overflow:hidden;">
+          <div class="shimmer" style="padding:12px 18px;background:linear-gradient(135deg,#ef4444,#f97316);">
+            <h4 style="font-weight:700;color:#fff;font-size:14px;">📍 חישוב מרחק ונסיעות</h4>
+          </div>
+          <div style="padding:1rem;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:0.75rem;">
+              <span>📍</span>
+              <div style="flex:1;background:#fafaf9;border:1px solid #e7e5e4;border-radius:10px;padding:8px 12px;font-size:13px;color:#44403c">סטודיו הרצליה, רח׳ השלום 12</div>
+            </div>
+            <div style="background:#fafaf9;border-radius:12px;padding:0.75rem 1rem;display:flex;flex-direction:column;gap:8px;font-size:13px;">
+              <div style="display:flex;justify-content:space-between"><span style="color:#78716c">הלוך-חזור:</span><span style="font-weight:700;color:#1a1a1a">94 ק״מ</span></div>
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <span style="color:#78716c">חישוב לפי:</span>
+                <span style="background:#fef3c7;color:#92400e;font-weight:700;font-size:11px;padding:3px 12px;border-radius:9999px;">🚗 מרגע יציאה מהבית</span>
+              </div>
+              <div style="border-top:1px solid #e7e5e4;padding-top:8px;display:flex;justify-content:space-between;align-items:center">
+                <span style="font-weight:600;color:#57534e">מגיע על נסיעות:</span>
+                <span style="font-size:1.2rem;font-weight:900;color:#059669">₪282</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="split-img img-overlay img-overlay-left order-mob-first parallax-img" style="position:relative;">
+      <img src="yael-hero.png" alt="יעל אלקנה" style="will-change:transform;">
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ STEP 5 — תשלומים ═══════════════ -->
+  <section class="split section-block" style="grid-template-columns:1fr 1fr;">
+    <div class="split-img img-overlay img-overlay-right order-mob-first parallax-img" style="position:relative;">
+      <img src="yael-hero.png" alt="יעל אלקנה" style="will-change:transform;">
+    </div>
+    <div class="split-content bg-green">
+      <div style="max-width:440px;" class="content-inner">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;background:rgba(0,0,0,0.2);">😩 הבעיה</span>
+        <h2 style="font-size:clamp(1.5rem,3vw,2.2rem);font-weight:800;color:#fff;margin:0.75rem 0 0.4rem;">מה שולם? מה חסר? מתי הבא?</h2>
+        <p style="font-size:15px;color:rgba(255,255,255,0.7);margin-bottom:2rem;">תשלומים חלקיים, בזמנים שונים. בלי מעקב אתה לא רודף אחרי מה שמגיע לך.</p>
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#065f46;background:rgba(255,255,255,0.85);">✅ הפתרון</span>
+        <h3 style="font-size:clamp(1.1rem,2.2vw,1.4rem);font-weight:700;color:#fff;margin:0.75rem 0 1.5rem;">מעקב תשלומים בזמן אמת</h3>
+        <div class="glass-strong" style="border-radius:16px;padding:1.25rem;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem;">
+            <span style="font-size:1.3rem">🎥</span>
+            <div><p style="font-weight:700;color:#1a1a1a;font-size:14px">הסדרה — עונה 3</p><p style="font-size:11px;color:#a8a29e">סה"כ ₪38,400</p></div>
+          </div>
+          <div style="margin-bottom:1rem;">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px"><span style="color:#78716c">התקדמות</span><span style="font-weight:700;color:#ea580c">46%</span></div>
+            <div style="width:100%;height:18px;background:#e7e5e4;border-radius:9999px;overflow:hidden">
+              <div id="progress-fill" style="width:0%;height:100%;border-radius:9999px;background:linear-gradient(135deg,#10b981,#059669);display:flex;align-items:center;justify-content:flex-end;padding-right:6px;transition:width 1.5s ease;">
+                <span style="font-size:10px;font-weight:700;color:#fff">₪17,600</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+            <div style="background:#f0fdf4;border-radius:12px;padding:10px;text-align:center;border:1px solid #bbf7d0"><p style="font-size:1rem;font-weight:900;color:#059669">₪17,600</p><p style="font-size:10px;color:#78716c">שולם</p></div>
+            <div style="background:#fff7ed;border-radius:12px;padding:10px;text-align:center;border:1px solid #fed7aa"><p style="font-size:1rem;font-weight:900;color:#ea580c">₪20,800</p><p style="font-size:10px;color:#78716c">נשאר</p></div>
+            <div style="background:#eff6ff;border-radius:12px;padding:10px;text-align:center;border:1px solid #bfdbfe"><p style="font-size:1rem;font-weight:900;color:#2563eb">01.06</p><p style="font-size:10px;color:#78716c">הבא</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ STEP 6 — PDF ═══════════════ -->
+  <section class="full-section bg-indigo section-block">
+    <div class="full-inner">
+      <div style="text-align:center;margin-bottom:2rem;" class="content-inner">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:9999px;font-size:13px;font-weight:700;color:#fff;background:rgba(0,0,0,0.2);">😩 שליחת פירוט לסוכנות = הודעת וואטסאפ מבולגנת</span>
+        <h2 style="font-size:clamp(1.5rem,3.5vw,2.2rem);font-weight:800;color:#fff;margin:0.75rem 0 0.4rem;">לחיצה אחת → PDF מפורט ומקצועי</h2>
+      </div>
+      <div style="max-width:620px;margin:0 auto;" class="content-inner">
+        <div class="glass-strong" style="border-radius:20px;overflow:hidden;position:relative;">
+          <div style="position:absolute;top:14px;left:14px;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;font-size:11px;font-weight:800;padding:4px 12px;border-radius:9999px;z-index:2">PDF</div>
+          <div style="padding:20px 24px 14px;border-bottom:3px solid #4f46e5">
+            <h4 style="font-size:1.1rem;font-weight:800;color:#1e1b4b;margin-bottom:2px">דיווח עבודה לסוכנות</h4>
+            <p style="font-size:11px;color:#a8a29e">מסמך תיעוד ימי עבודה</p>
+          </div>
+          <div style="margin:14px 24px;overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:11px">
+              <thead><tr style="background:#4f46e5">
+                <th style="padding:7px 8px;text-align:center;color:#fff;font-weight:700;width:24px">#</th>
+                <th style="padding:7px 8px;text-align:right;color:#fff;font-weight:700">סוג</th>
+                <th style="padding:7px 8px;text-align:right;color:#fff;font-weight:700">תאריך</th>
+                <th style="padding:7px 8px;text-align:right;color:#fff;font-weight:700">שעות</th>
+                <th style="padding:7px 8px;text-align:left;color:#fff;font-weight:700">סכום</th>
+              </tr></thead>
+              <tbody>
+                <tr><td style="padding:6px 8px;text-align:center;color:#9ca3af;border-bottom:1px solid #f3f4f6">1</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;color:#374151">יום צילום</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;color:#374151">12.04</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;color:#d97706;font-weight:600">07:00–19:30</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:left;font-weight:700;color:#059669">₪3,200</td></tr>
+                <tr style="background:#f9fafb"><td style="padding:6px 8px;text-align:center;color:#9ca3af;border-bottom:1px solid #f3f4f6">2</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;color:#374151">יום צילום</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;color:#374151">15.04</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;color:#059669;font-weight:600">08:00–22:00</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:left;font-weight:700;color:#059669">₪3,200</td></tr>
+                <tr><td style="padding:6px 8px;text-align:center;color:#9ca3af">3</td><td style="padding:6px 8px;color:#374151">חזרות</td><td style="padding:6px 8px;color:#374151">22.04</td><td style="padding:6px 8px;color:#6b7280">4 שעות</td><td style="padding:6px 8px;text-align:left;font-weight:700;color:#059669">₪800</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="margin:0 24px 14px;background:#eef2ff;border-right:4px solid #4f46e5;border-radius:8px;padding:12px 16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:8px;border-bottom:2px solid #4f46e5;margin-bottom:6px">
+              <span style="font-size:13px;font-weight:800;color:#1e1b4b">סך הכל:</span>
+              <span style="font-size:1.15rem;font-weight:800;color:#4f46e5">₪10,400</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:#6b7280">התקבל</span><span style="font-weight:700;color:#059669">-₪9,600</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;margin-top:4px"><span style="color:#6b7280">יתרה</span><span style="font-weight:700;color:#d97706">₪800</span></div>
+          </div>
+        </div>
+        <div style="text-align:center;margin-top:1.25rem">
+          <span class="shimmer" style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.15);backdrop-filter:blur(12px);color:#fff;font-weight:700;font-size:15px;padding:14px 32px;border-radius:16px;border:1px solid rgba(255,255,255,0.2)">📥 הורד PDF — בלחיצה אחת</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ BEFORE / AFTER ═══════════════ -->
+  <section class="full-section bg-dark section-block">
+    <div class="full-inner">
+      <h2 style="font-size:clamp(1.5rem,3.5vw,2.2rem);font-weight:800;color:#fff;text-align:center;margin-bottom:2.5rem" class="content-inner">לפני ← אחרי</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;" class="mob-grid-1">
+        <div class="before-after-card" style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.15);border-radius:20px;padding:1.5rem">
+          <h3 style="text-align:center;font-weight:800;color:#fca5a5;margin-bottom:1rem;font-size:1.05rem">😩 היום</h3>
+          <div style="display:flex;flex-direction:column;gap:10px;font-size:13px">
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(252,165,165,0.8)"><span style="color:#f87171">✗</span>פתקים, הודעות, זיכרון</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(252,165,165,0.8)"><span style="color:#f87171">✗</span>לא ברור מה כתוב בחוזה</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(252,165,165,0.8)"><span style="color:#f87171">✗</span>לא מחשבים נסיעות לפי שח"מ</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(252,165,165,0.8)"><span style="color:#f87171">✗</span>חישובים ידניים עם טעויות</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(252,165,165,0.8)"><span style="color:#f87171">✗</span>לא יודעים מה שולם</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(252,165,165,0.8)"><span style="color:#f87171">✗</span>וואטסאפ מבולגן לסוכנות</div>
+          </div>
+        </div>
+        <div class="before-after-card" style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.15);border-radius:20px;padding:1.5rem">
+          <h3 style="text-align:center;font-weight:800;color:#6ee7b7;margin-bottom:1rem;font-size:1.05rem">😎 עם המערכת</h3>
+          <div style="display:flex;flex-direction:column;gap:10px;font-size:13px">
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(110,231,183,0.8)"><span style="color:#34d399">✓</span>הכל מרוכז במקום אחד</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(110,231,183,0.8)"><span style="color:#34d399">✓</span>חוזה נקרא אוטומטית</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(110,231,183,0.8)"><span style="color:#34d399">✓</span>חישוב מרחק לפי שח"מ</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(110,231,183,0.8)"><span style="color:#34d399">✓</span>סיכום מדויק בכל רגע</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(110,231,183,0.8)"><span style="color:#34d399">✓</span>מעקב תשלומים חי</div>
+            <div style="display:flex;align-items:center;gap:8px;color:rgba(110,231,183,0.8)"><span style="color:#34d399">✓</span>PDF מקצועי בלחיצה</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════ CTA ═══════════════ -->
+  <section class="bg-orange section-block" style="padding:5rem 0;">
+    <div style="text-align:center;max-width:540px;margin:0 auto;padding:0 24px;" class="content-inner">
+      <h2 style="font-size:clamp(1.8rem,4vw,2.5rem);font-weight:900;color:#fff;margin-bottom:0.75rem">מוכנה להתנהל כמו מקצוענית?</h2>
+      <p style="font-size:15px;color:rgba(255,255,255,0.7);margin-bottom:2rem">דקה אחת להקים פרויקט. שליטה מלאה מהיום.</p>
+      <a href="#" class="shimmer pulse-ring" style="display:inline-flex;align-items:center;gap:8px;background:#fff;color:#ea580c;font-weight:800;font-size:1.1rem;padding:16px 42px;border-radius:16px;text-decoration:none;box-shadow:0 8px 32px rgba(0,0,0,0.15)">
+        התחל עכשיו
+      </a>
+    </div>
+  </section>
+
+  <footer style="background:#0f172a;padding:1.5rem;text-align:center">
+    <p style="font-size:11px;color:rgba(255,255,255,0.15)">כל הזכויות שמורות &copy; 2026</p>
+  </footer>
+
+</div><!-- end .page-wrap -->
+
+<script>
+gsap.registerPlugin(ScrollTrigger);
+
+/* ════════════════════════════════════════════
+   THREE.JS — Cinematic Background
+════════════════════════════════════════════ */
+(function() {
+  const canvas = document.getElementById('bg-canvas');
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+  camera.position.z = 3;
+
+  // ── Gradient mesh plane ──
+  const geo = new THREE.PlaneGeometry(8, 8, 32, 32);
+  const positions = geo.attributes.position;
+  const colors = [];
+  for (let i = 0; i < positions.count; i++) {
+    const x = positions.getX(i);
+    const y = positions.getY(i);
+    const n = Math.sin(x * 0.8) * Math.cos(y * 0.8) * 0.5 + 0.5;
+    colors.push(n * 0.06, n * 0.04, n * 0.12);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.6 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.z = -2;
+  scene.add(mesh);
+
+  // ── Particles ──
+  const pCount = 120;
+  const pGeo = new THREE.BufferGeometry();
+  const pPos = new Float32Array(pCount * 3);
+  const pSizes = new Float32Array(pCount);
+  for (let i = 0; i < pCount; i++) {
+    pPos[i*3]   = (Math.random() - 0.5) * 12;
+    pPos[i*3+1] = (Math.random() - 0.5) * 12;
+    pPos[i*3+2] = (Math.random() - 0.5) * 6 - 1;
+    pSizes[i]   = Math.random() * 3 + 1;
+  }
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+  pGeo.setAttribute('size', new THREE.BufferAttribute(pSizes, 1));
+  const pMat = new THREE.PointsMaterial({ color: 0xfb923c, size: 0.04, transparent: true, opacity: 0.25, sizeAttenuation: true });
+  const particles = new THREE.Points(pGeo, pMat);
+  scene.add(particles);
+
+  // ── Ambient light glow spheres ──
+  const glowGeo = new THREE.SphereGeometry(0.6, 16, 16);
+  const glowColors = [0xea580c, 0x2563eb, 0x059669, 0xd97706, 0x4338ca];
+  const glows = glowColors.map((color, i) => {
+    const m = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.04 });
+    const s = new THREE.Mesh(glowGeo, m);
+    s.position.set(
+      (Math.random() - 0.5) * 6,
+      (Math.random() - 0.5) * 6,
+      -2 - Math.random() * 2
+    );
+    s.scale.setScalar(2 + Math.random() * 3);
+    scene.add(s);
+    return { mesh: s, mat: m, targetColor: color, i };
+  });
+
+  // Scroll-driven color palette
+  const sectionColors = [
+    new THREE.Color(0xea580c),   // hero — orange
+    new THREE.Color(0x2563eb),   // problem strip — blue
+    new THREE.Color(0x059669),   // s1 — green
+    new THREE.Color(0x2563eb),   // step2 — blue
+    new THREE.Color(0xd97706),   // step3 — yellow
+    new THREE.Color(0xdc2626),   // step4 — red
+    new THREE.Color(0x059669),   // step5 — green
+    new THREE.Color(0x4338ca),   // step6 — indigo
+    new THREE.Color(0x1e293b),   // before/after
+    new THREE.Color(0xea580c),   // cta
+  ];
+  const currentColor = new THREE.Color(0xea580c);
+
+  let scrollProgress = 0;
+  let targetScrollProgress = 0;
+  let time = 0;
+
+  // Track scroll
+  window.addEventListener('scroll', () => {
+    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+    targetScrollProgress = window.scrollY / maxScroll;
+  });
+
+  function animate() {
+    requestAnimationFrame(animate);
+    time += 0.005;
+    scrollProgress += (targetScrollProgress - scrollProgress) * 0.05;
+
+    // Camera subtle drift
+    camera.position.x = Math.sin(time * 0.3) * 0.15;
+    camera.position.y = Math.cos(time * 0.2) * 0.1;
+    camera.lookAt(0, 0, 0);
+
+    // Mesh wave deformation
+    const pos = mesh.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      pos.setZ(i, Math.sin(x * 1.2 + time) * Math.cos(y * 0.8 + time * 0.7) * 0.12);
+    }
+    pos.needsUpdate = true;
+
+    // Particles drift
+    particles.rotation.y = time * 0.04;
+    particles.rotation.x = time * 0.02;
+
+    // Color transition based on scroll
+    const sIdx = scrollProgress * (sectionColors.length - 1);
+    const sFloor = Math.floor(sIdx);
+    const sCeil  = Math.min(sFloor + 1, sectionColors.length - 1);
+    const sFrac  = sIdx - sFloor;
+    currentColor.lerpColors(sectionColors[sFloor], sectionColors[sCeil], sFrac);
+
+    glows.forEach((g, i) => {
+      g.mesh.position.x += Math.sin(time * 0.3 + i) * 0.003;
+      g.mesh.position.y += Math.cos(time * 0.25 + i) * 0.003;
+      g.mat.color.lerp(currentColor, 0.02);
+      g.mat.opacity = 0.03 + Math.sin(time + i) * 0.015;
+    });
+    pMat.color.lerp(currentColor, 0.03);
+
+    // Mesh scroll zoom
+    const zoomScale = 1 + scrollProgress * 0.3;
+    mesh.scale.set(zoomScale, zoomScale, 1);
+
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+})();
+
+
+/* ════════════════════════════════════════════
+   GSAP — Hero entrance
+════════════════════════════════════════════ */
+const heroTl = gsap.timeline({ defaults: { ease: 'power3.out' } });
+heroTl
+  .to('#hero-badge-tag', { opacity:1, y:0, duration:0.8, delay:0.2 })
+  .to('#hero-h1',        { opacity:1, y:0, duration:0.9 }, '-=0.5')
+  .to('#hero-p',         { opacity:1, y:0, duration:0.8 }, '-=0.6')
+  .to('#hero-cta',       { opacity:1, y:0, duration:0.7 }, '-=0.5')
+  .to('#hero-stats',     { opacity:1, y:0, duration:0.7 }, '-=0.4');
+
+// Counter animation for stats
+gsap.to({ val: 0 }, {
+  val: 100,
+  duration: 2,
+  delay: 1.2,
+  ease: 'power2.out',
+  onUpdate: function() {
+    const el = document.getElementById('stat1');
+    if (el) el.textContent = Math.round(this.targets()[0].val) + '%';
+  }
+});
+gsap.to({ val: 10 }, {
+  val: 0,
+  duration: 1.8,
+  delay: 1.4,
+  ease: 'power2.out',
+  onUpdate: function() {
+    const el = document.getElementById('stat2');
+    if (el) el.textContent = Math.round(this.targets()[0].val);
+  }
+});
+
+// Hero image — cinematic zoom on load
+gsap.from('#hero-img', { scale: 1.15, duration: 2.5, ease: 'power2.out', delay: 0 });
+gsap.from('#hero-badge', { opacity: 0, y: 20, duration: 1, delay: 1.5, ease: 'power3.out' });
+
+
+/* ════════════════════════════════════════════
+   GSAP — Scroll progress bar
+════════════════════════════════════════════ */
+gsap.to('#progress-bar', {
+  scaleX: 1,
+  ease: 'none',
+  scrollTrigger: {
+    trigger: 'body',
+    start: 'top top',
+    end: 'bottom bottom',
+    scrub: 0.3
+  }
+});
+
+
+/* ════════════════════════════════════════════
+   GSAP — Parallax on all split images
+════════════════════════════════════════════ */
+document.querySelectorAll('.parallax-img').forEach(container => {
+  const img = container.querySelector('img');
+  if (!img) return;
+  gsap.fromTo(img,
+    { yPercent: -8, scale: 1.16 },
+    {
+      yPercent: 8,
+      scale: 1.08,
+      ease: 'none',
+      scrollTrigger: {
+        trigger: container,
+        start: 'top bottom',
+        end: 'bottom top',
+        scrub: 1.2
+      }
+    }
+  );
+});
+
+// Hero image parallax
+gsap.to('#hero-img', {
+  yPercent: 12,
+  ease: 'none',
+  scrollTrigger: {
+    trigger: '#hero',
+    start: 'top top',
+    end: 'bottom top',
+    scrub: 1
+  }
+});
+
+
+/* ════════════════════════════════════════════
+   GSAP — Section entrances
+════════════════════════════════════════════ */
+document.querySelectorAll('.section-block').forEach(section => {
+  // Content inner blocks
+  gsap.from(section.querySelectorAll('.content-inner'), {
+    opacity: 0,
+    y: 50,
+    scale: 0.97,
+    duration: 1,
+    stagger: 0.12,
+    ease: 'power3.out',
+    scrollTrigger: {
+      trigger: section,
+      start: 'top 80%',
+      toggleActions: 'play none none none'
+    }
+  });
+});
+
+
+/* ════════════════════════════════════════════
+   GSAP — Problem tags stagger
+════════════════════════════════════════════ */
+gsap.from('.prob-tag', {
+  opacity: 0,
+  y: 20,
+  scale: 0.9,
+  stagger: 0.08,
+  duration: 0.6,
+  ease: 'back.out(1.4)',
+  scrollTrigger: {
+    trigger: '#problem-strip',
+    start: 'top 85%',
+    toggleActions: 'play none none none'
+  }
+});
+
+
+/* ════════════════════════════════════════════
+   GSAP — Project cards stagger + hover 3D
+════════════════════════════════════════════ */
+gsap.from('.project-card', {
+  opacity: 0,
+  y: 40,
+  rotateX: 8,
+  stagger: 0.15,
+  duration: 0.8,
+  ease: 'power3.out',
+  scrollTrigger: {
+    trigger: '.project-card',
+    start: 'top 85%',
+    toggleActions: 'play none none none'
+  }
+});
+
+document.querySelectorAll('.project-card').forEach(card => {
+  card.addEventListener('mouseenter', () => {
+    gsap.to(card, { scale: 1.04, y: -6, duration: 0.3, ease: 'power2.out', boxShadow: '0 20px 60px rgba(0,0,0,0.35)' });
+  });
+  card.addEventListener('mouseleave', () => {
+    gsap.to(card, { scale: 1, y: 0, duration: 0.4, ease: 'power2.inOut', boxShadow: 'none' });
+  });
+});
+
+
+/* ════════════════════════════════════════════
+   GSAP — Progress bar fill animation
+════════════════════════════════════════════ */
+ScrollTrigger.create({
+  trigger: '#progress-fill',
+  start: 'top 80%',
+  onEnter: () => {
+    document.getElementById('progress-fill').style.width = '46%';
+  }
+});
+
+
+/* ════════════════════════════════════════════
+   GSAP — Before/After cards
+════════════════════════════════════════════ */
+gsap.from('.before-after-card', {
+  opacity: 0,
+  x: function(i) { return i === 0 ? -60 : 60; },
+  duration: 0.9,
+  stagger: 0.2,
+  ease: 'power3.out',
+  scrollTrigger: {
+    trigger: '.before-after-card',
+    start: 'top 82%',
+    toggleActions: 'play none none none'
+  }
+});
+
+
+/* ════════════════════════════════════════════
+   GSAP — Section scale zoom entrance (cinematic)
+════════════════════════════════════════════ */
+document.querySelectorAll('.split').forEach((section, i) => {
+  if (i === 0) return; // skip hero
+  gsap.from(section, {
+    scale: 0.96,
+    opacity: 0,
+    duration: 1.0,
+    ease: 'power2.out',
+    scrollTrigger: {
+      trigger: section,
+      start: 'top 90%',
+      toggleActions: 'play none none none'
+    }
+  });
+});
+
+
+/* ════════════════════════════════════════════
+   GSAP — Smooth anchor scroll
+════════════════════════════════════════════ */
+document.querySelectorAll('a[href^="#"]').forEach(link => {
+  link.addEventListener('click', e => {
+    const target = document.querySelector(link.getAttribute('href'));
+    if (!target) return;
+    e.preventDefault();
+    gsap.to(window, {
+      duration: 1.4,
+      scrollTo: { y: target, offsetY: 0 },
+      ease: 'power3.inOut'
+    });
+  });
+});
+
+</script>
+</body>
+</html>
