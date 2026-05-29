@@ -2057,6 +2057,7 @@ export default function IncomePage() {
                             label="סיום צילומים"
                             triggerOpen={autoOpenEnd}
                             onOpenHandled={() => setAutoOpenEnd(false)}
+                            minTime={newSess.shootStart || null}
                           />
                         </Field>
                       </div>
@@ -2079,6 +2080,7 @@ export default function IncomePage() {
                             label="שעת חזור"
                             triggerOpen={autoOpenReturn}
                             onOpenHandled={() => setAutoOpenReturn(false)}
+                            minTime={newSess.pickupTime || null}
                           />
                         </Field>
                       </div>
@@ -2210,6 +2212,7 @@ export default function IncomePage() {
                             label="סיום חזרה"
                             triggerOpen={autoOpenEnd}
                             onOpenHandled={() => setAutoOpenEnd(false)}
+                            minTime={newSess.shootStart || null}
                           />
                         </Field>
                       </div>
@@ -2362,6 +2365,7 @@ export default function IncomePage() {
                           label="שעת סיום"
                           triggerOpen={autoOpenEnd}
                           onOpenHandled={() => setAutoOpenEnd(false)}
+                          minTime={newSess.shootStart || null}
                         />
                       </Field>
                     </div>
@@ -2421,6 +2425,7 @@ export default function IncomePage() {
                               label="סיום"
                               triggerOpen={autoOpenEnd}
                               onOpenHandled={() => setAutoOpenEnd(false)}
+                              minTime={newSess.shootStart || null}
                             />
                           </Field>
                         </div>
@@ -2492,6 +2497,7 @@ export default function IncomePage() {
                             label="סיום הקלטה"
                             triggerOpen={autoOpenDubbingEnd}
                             onOpenHandled={() => setAutoOpenDubbingEnd(false)}
+                            minTime={newSess.dubbingStart || null}
                           />
                         </Field>
                       </div>
@@ -2606,6 +2612,7 @@ export default function IncomePage() {
                             label="סיום הקלטה"
                             triggerOpen={autoOpenDubbingEnd}
                             onOpenHandled={() => setAutoOpenDubbingEnd(false)}
+                            minTime={newSess.dubbingStart || null}
                           />
                         </Field>
                       </div>
@@ -2684,6 +2691,7 @@ export default function IncomePage() {
                           label="שעת סיום"
                           triggerOpen={autoOpenLectureEnd}
                           onOpenHandled={() => setAutoOpenLectureEnd(false)}
+                          minTime={newSess.lectureStart || null}
                         />
                       </Field>
                     </div>

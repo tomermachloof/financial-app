@@ -16,7 +16,7 @@ if (typeof document !== 'undefined' && !document.getElementById('tp-anim')) {
 }
 
 // ── בוחר שעה בקפיצות של 5 דקות, עם לשוניות בוקר/ערב ─────────────
-export default function TimePicker({ value, onChange, placeholder = 'בחר שעה', defaultHint = null, label = null, onPicked = null, triggerOpen = false, onOpenHandled = null }) {
+export default function TimePicker({ value, onChange, placeholder = 'בחר שעה', defaultHint = null, label = null, onPicked = null, triggerOpen = false, onOpenHandled = null, minTime = null }) {
   const [open, setOpen] = useState(false)
   useEffect(() => {
     if (triggerOpen) {
@@ -34,10 +34,13 @@ export default function TimePicker({ value, onChange, placeholder = 'בחר שע
     if (basis && /^\d{1,2}:\d{2}$/.test(basis)) {
       const h = parseInt(basis.split(':')[0], 10)
       setPeriod(h >= 12 ? 'pm' : 'am')
+    } else if (minTime && /^\d{1,2}:\d{2}$/.test(minTime)) {
+      const h = parseInt(minTime.split(':')[0], 10)
+      setPeriod(h >= 12 ? 'pm' : 'am')
     } else {
       setPeriod('am')
     }
-  }, [open, value, defaultHint])
+  }, [open, value, defaultHint, minTime])
 
   // Scroll to top when switching periods
   useEffect(() => {
@@ -53,6 +56,16 @@ export default function TimePicker({ value, onChange, placeholder = 'בחר שע
       const mm = String(m).padStart(2, '0')
       slots.push(`${hh}:${mm}`)
     }
+  }
+
+  const toMins = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
+  const minMins = minTime && /^\d{1,2}:\d{2}$/.test(minTime) ? toMins(minTime) : null
+  const minPeriod = minTime ? (parseInt(minTime.split(':')[0], 10) >= 12 ? 'pm' : 'am') : null
+  const isAllowed = (slot) => {
+    if (minMins === null) return true
+    const slotPeriod = parseInt(slot.split(':')[0], 10) >= 12 ? 'pm' : 'am'
+    if (slotPeriod !== minPeriod) return true
+    return toMins(slot) > minMins
   }
 
   const isSelected = (slot) => value === slot
@@ -157,7 +170,7 @@ export default function TimePicker({ value, onChange, placeholder = 'בחר שע
               className="px-4"
             >
               <div className="grid grid-cols-4 gap-2" dir="rtl">
-                {slots.map(slot => {
+                {slots.filter(isAllowed).map(slot => {
                   const sel = isSelected(slot)
                   const hint = isHint(slot)
                   return (
