@@ -117,34 +117,49 @@ const computePhotoDayAmount = (workHours, rate, tiers) => {
   return { baseAmt: r, overtimeAmt, total: r + overtimeAmt, breakdown }
 }
 
-// Compute rehearsal/fitting amount
-// hours 1-2 at pct12%, hours 3+ at pct3plus% (each a percentage of a full photo day)
-const computeRehearsalAmount = (hours, rate, pct12, pct3plus) => {
+// חישוב שכר חזרה/מדידה (קולנוע/טלוויזיה) — לפי שח״ם.
+// pct12   = אחוז לכל בלוק של עד שעתיים (ברירת מחדל 15%).
+// pct3plus = רצפת אחוז לחזרה *בודדת* בכל הפרויקט (ברירת מחדל 30%, עד 4 שעות).
+// isSingle = האם זו החזרה/מדידה היחידה בפרויקט.
+//   • בודדת: 30% עד 4 שעות; מעבר ל-4 שעות ממשיך 15% לכל בלוק שעתיים נוסף.
+//   • שתיים ומעלה: כל אחת = 15% לכל בלוק של עד שעתיים (≤2ש'=15%, ≤4ש'=30%, ≤6ש'=45%...).
+const computeRehearsalAmount = (hours, rate, pct12, pct3plus, isSingle = false) => {
   const h = roundUpQuarter(hours)
   const r = Number(rate) || 0
   if (h <= 0 || r <= 0) return { total: 0, breakdown: [] }
-
-  const p12 = (Number(pct12) || 15) / 100
-  const p3  = (Number(pct3plus) || 30) / 100
-
+  const pct12n = Number(pct12) || 15   // אחוז לכל בלוק שעתיים
+  const pct3n  = Number(pct3plus) || 30 // רצפת אחוז לחזרה בודדת
+  const blocks = Math.ceil(h / 2)
+  const blocksPct = blocks * pct12n
   const breakdown = []
-  let total = 0
-
-  const firstTier = Math.min(h, 2)
-  if (firstTier > 0) {
-    const amt = firstTier * r * p12
-    total += amt
-    breakdown.push({ label: `שעות 1–${firstTier}: ${firstTier} × ₪${r} × ${Math.round(p12 * 100)}%`, amount: amt })
+  let pct
+  if (isSingle && pct3n > blocksPct) {
+    pct = pct3n
+    breakdown.push({ label: `חזרה בודדת בפרויקט (עד 4 שעות): ₪${r} × ${pct3n}%`, amount: r * pct3n / 100 })
+  } else {
+    pct = blocksPct
+    breakdown.push({ label: `${blocks} × בלוק שעתיים: ₪${r} × ${pct12n}%`, amount: r * blocksPct / 100 })
   }
+  return { total: r * pct / 100, breakdown }
+}
 
-  if (h > 2) {
-    const extra = h - 2
-    const amt = extra * r * p3
-    total += amt
-    breakdown.push({ label: `שעות 3–${h}: ${extra} × ₪${r} × ${Math.round(p3 * 100)}%`, amount: amt })
-  }
+// חזרה ומדידה נחשבות אותו דבר לחוק — נספרות יחד ומשפיעות זו על זו. הסוג לתיעוד בלבד.
+const isRehearsalType = (s) => !!s && (s.type === 'חזרות' || s.type === 'מדידות')
+const countRehearsals = (sessions) =>
+  (Array.isArray(sessions) ? sessions : []).filter(isRehearsalType).length
 
-  return { total, breakdown }
+// חישוב-מחדש של סכומי כל החזרות/מדידות לפי מספרן הכולל בפרויקט (בודדת=30% / מרובה=15% לבלוק).
+// משתמש בערכים השמורים בכל session. לא נוגע ב-manualMode. מחזיר מערך חדש.
+const recomputeRehearsals = (sessions) => {
+  const list = Array.isArray(sessions) ? sessions : []
+  const single = countRehearsals(list) === 1
+  return list.map(s => {
+    if (isRehearsalType(s) && !s.manualMode) {
+      const calc = computeRehearsalAmount(s.hours, s.photoDayRateUsed, s.pct12Used, s.pct3plusUsed, single)
+      return { ...s, amount: calc.total }
+    }
+    return s
+  })
 }
 
 const EMPTY_INCOME = {
@@ -669,7 +684,9 @@ export default function IncomePage() {
         : 0
       const h = newSess.hours !== '' ? Number(newSess.hours) : autoH
       const rate = Number(form.photoDayRate) || 0
-      const calc = computeRehearsalAmount(h, rate, form.rehearsalPct12, form.rehearsalPct3plus)
+      // האם זה יהיה רישום החזרה/מדידה היחיד בפרויקט (חוץ מהנערך כרגע) → רצפת 30%. נספרות יחד.
+      const willBeSingle = (form.sessions || []).filter(s => (s.type === 'חזרות' || s.type === 'מדידות') && s.id !== editingSessId).length === 0
+      const calc = computeRehearsalAmount(h, rate, form.rehearsalPct12, form.rehearsalPct3plus, willBeSingle)
       const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : calc.total
       if (finalAmt < 0) return null
       if (finalAmt === 0 && !newSess.manualMode) return null
@@ -858,9 +875,9 @@ export default function IncomePage() {
     const sess = buildSessionFromNewSess(editingSessId)
     if (!sess) return
     const base = form.sessions || []
-    const sessions = editingSessId
+    const sessions = recomputeRehearsals(editingSessId
       ? base.map(w => w.id === editingSessId ? sess : w)
-      : [...base, sess]
+      : [...base, sess])
     if (!editingSessId) playKaching()
     const totalAmount = sessions.reduce((s, w) => s + (w.amount || 0), 0)
     // מסחרי: לא לדרוס את הסכום הקבוע עם סכום הרישומים (שהוא 0)
@@ -943,7 +960,8 @@ export default function IncomePage() {
     setNewSess({ ...EMPTY_NEW_SESS, type: defaultSessType() })
   }
   const removeSessFromForm = (id) => {
-    const sessions = (form.sessions || []).filter(w => w.id !== id)
+    // אחרי מחיקה ייתכן שנשארה חזרה/מדידה בודדת → recompute מחזיר אותה ל-30%
+    const sessions = recomputeRehearsals((form.sessions || []).filter(w => w.id !== id))
     const totalAmount = sessions.reduce((s, w) => s + (w.amount || 0), 0)
     setForm(f => ({ ...f, sessions, ...(form.projectType === 'commercial' ? {} : { amount: totalAmount }) }))
     // שמירה מיידית לענן במצב עריכה
@@ -958,6 +976,15 @@ export default function IncomePage() {
   }
   const closeModal = () => { setModal(null); setEditingSessId(null); setNewSess(EMPTY_NEW_SESS); setContractFile(null) }
 
+  // חזרה/מדידה בודדת בפרויקט מקבלת רצפת 30%. ההערה מוצגת רק כשתוספת רישום *תקטין* את הסכום (עד שעתיים).
+  const isRehearsalSingleBonus = (ws) => {
+    if (!isRehearsalType(ws) || ws.manualMode) return false
+    if (countRehearsals(form.sessions) !== 1) return false
+    const p12 = (Number(ws.pct12Used) || 15) / 100
+    const p3  = (Number(ws.pct3plusUsed) || 30) / 100
+    return p3 > Math.ceil(roundUpQuarter(ws.hours) / 2) * p12
+  }
+
   const save = () => {
     // אם יש רישום תקף בטופס הרישום החדש שלא נלחץ "+ הוסף רישום" — להוסיפו אוטומטית
     let sessions = form.sessions || []
@@ -967,6 +994,7 @@ export default function IncomePage() {
         ? sessions.map(w => w.id === editingSessId ? pending : w)
         : [...sessions, pending]
     }
+    sessions = recomputeRehearsals(sessions)
     const totalFromSessions = sessions.reduce((s, w) => s + (w.amount || 0), 0)
     // מסחרי: הסכום קבוע מראש, לא מחושב מהרישומים (רישומים הם תיעוד בלבד)
     const finalAmount = form.projectType === 'commercial'
@@ -1850,10 +1878,10 @@ export default function IncomePage() {
                   <Input type="number" value={form.photoDayRate} onChange={v => set('photoDayRate', v)} placeholder="0" />
                 </Field>
                 <div className="grid grid-cols-2 gap-2">
-                  <Field label="% שעה 1–2 (חזרה/מדידה)">
+                  <Field label="% לכל בלוק שעתיים">
                     <Input type="number" value={form.rehearsalPct12} onChange={v => set('rehearsalPct12', v)} placeholder="15" />
                   </Field>
-                  <Field label="% שעה 3+ (חזרה/מדידה)">
+                  <Field label="% חזרה בודדת בפרויקט">
                     <Input type="number" value={form.rehearsalPct3plus} onChange={v => set('rehearsalPct3plus', v)} placeholder="30" />
                   </Field>
                 </div>
@@ -1932,6 +1960,9 @@ export default function IncomePage() {
                         )}
                         {ws.overtimeAmt > 0 && (
                           <p className="text-xs text-orange-400">כולל שעות נוספות: {formatILS(ws.overtimeAmt)}</p>
+                        )}
+                        {isRehearsalSingleBonus(ws) && (
+                          <p className="text-[11px] text-amber-600 leading-snug">⚠️ חזרה/מדידה בודדת בפרויקט (30%). הוספת רישום חזרה/מדידה נוסף תהפוך אותה ל-15% לכל שעתיים.</p>
                         )}
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
@@ -2184,7 +2215,11 @@ export default function IncomePage() {
                   ? roundUpQuarter(timeDiffHours(newSess.shootStart, newSess.shootEnd))
                   : 0
                 const h = newSess.hours !== '' ? Number(newSess.hours) : autoH
-                const calc = computeRehearsalAmount(h, rate, form.rehearsalPct12, form.rehearsalPct3plus)
+                const willBeSingle = (form.sessions || []).filter(s => (s.type === 'חזרות' || s.type === 'מדידות') && s.id !== editingSessId).length === 0
+                const calc = computeRehearsalAmount(h, rate, form.rehearsalPct12, form.rehearsalPct3plus, willBeSingle)
+                const p12n = (Number(form.rehearsalPct12) || 15) / 100
+                const p3n  = (Number(form.rehearsalPct3plus) || 30) / 100
+                const singleBonusActive = willBeSingle && p3n > Math.ceil(roundUpQuarter(h) / 2) * p12n
                 const finalAmt = newSess.manualMode ? (Number(newSess.manualAmount) || 0) : calc.total
                 const canAdd = newSess.manualMode ? newSess.manualAmount !== '' : finalAmt > 0
                 return (
@@ -2229,7 +2264,7 @@ export default function IncomePage() {
                       <div className="text-xs text-gray-500">
                         תעריף יום צילום: <span className="font-semibold text-gray-700">{formatILS(rate)}</span>
                         {' · '}
-                        שעה 1–2: {form.rehearsalPct12 || 15}% · שעה 3+: {form.rehearsalPct3plus || 30}%
+                        בלוק שעתיים: {form.rehearsalPct12 || 15}% · חזרה בודדת: {form.rehearsalPct3plus || 30}%
                       </div>
                     )}
 
@@ -2245,6 +2280,9 @@ export default function IncomePage() {
                           <span className="font-semibold text-green-700">סה״כ</span>
                           <span className="font-bold text-green-700">{formatILS(calc.total)}</span>
                         </div>
+                        {singleBonusActive && (
+                          <p className="text-[11px] text-amber-600 leading-snug pt-1">⚠️ חזרה/מדידה בודדת בפרויקט (30%). הוספת רישום חזרה/מדידה נוסף תהפוך אותה ל-15% לכל שעתיים.</p>
+                        )}
                       </div>
                     )}
 
