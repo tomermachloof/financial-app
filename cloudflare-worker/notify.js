@@ -42,9 +42,11 @@ export default {
     // ── חישוב מרחק מהבית ──
     if (url.pathname === '/distance') {
       const dest = url.searchParams.get('destination')
+      const home = url.searchParams.get('home')
       if (!dest) return new Response(JSON.stringify({ error: 'missing destination' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } })
+      if (!home) return new Response(JSON.stringify({ error: 'missing home' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } })
       try {
-        const result = await calcDistance(dest, env)
+        const result = await calcDistance(dest, home, env)
         return new Response(JSON.stringify(result), { headers: { ...cors, 'Content-Type': 'application/json' } })
       } catch (err) {
         return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } })
@@ -574,15 +576,14 @@ async function upsertSupabase(env, id, state) {
 }
 
 // ── חישוב מרחק מהבית ──────────────────────────────────────────
-const HOME_ADDRESS = 'משה וילנסקי 55, תל אביב, ישראל'
 const DISTANCE_THRESHOLD_KM = 20
 
-async function calcDistance(destination, env) {
+async function calcDistance(destination, homeAddress, env) {
   const key = env.GOOGLE_MAPS_KEY
   if (!key) throw new Error('GOOGLE_MAPS_KEY not configured')
 
   const params = new URLSearchParams({
-    origins: HOME_ADDRESS,
+    origins: homeAddress,
     destinations: destination + ', ישראל',
     key,
     language: 'he',
@@ -669,7 +670,7 @@ const PROMPTS = {
   "name": "שם הפרויקט / הקמפיין",
   "amount": 0,
   "commercialClient": "שם הלקוח / המותג",
-  "commercialPlatform": "instagram / tiktok / youtube / tv / other",
+  "commercialPlatformList": ["מערך הפלטפורמות שבהן יפורסם התוכן"],
   "commercialShootDaysContract": 0,
   "agentCommission": false,
   "addVat": false,
@@ -678,7 +679,7 @@ const PROMPTS = {
 }
 הסבר:
 - commercialClient = שם החברה או המותג
-- commercialPlatform = הפלטפורמה העיקרית (instagram, tiktok, youtube, tv, other)
+- commercialPlatformList = מערך הפלטפורמות שבהן יפורסם התוכן. השתמש אך ורק בתוויות הבאות בדיוק כפי שהן: "אינסטגרם", "טיקטוק", "יוטיוב", "פייסבוק", "טלוויזיה", "רדיו", "שילוט חוצות", "אתר אינטרנט", "הגעה לאירוע", "אחר". אם לא נמצא — החזר [].
 - commercialShootDaysContract = כמות ימי צילום שנקבעו בחוזה
 אם שדה לא נמצא — החזר null.`,
 }
@@ -706,7 +707,7 @@ async function analyzeDocument({ base64, mediaType, type }, env) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       messages: [{ role: 'user', content }],
     }),

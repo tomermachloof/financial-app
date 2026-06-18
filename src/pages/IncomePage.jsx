@@ -5,7 +5,7 @@ import Modal, { Field, Input, Select, Textarea, SaveButton, DeleteButton } from 
 import TimePicker from '../components/TimePicker'
 import Backdrop from '../components/Backdrop'
 import PartialPaymentModal from '../components/PartialPaymentModal'
-import { exportIncomeReport } from '../lib/exportIncomeReport'
+import { exportIncomeReport, buildReportSummaryText, projectStartDate } from '../lib/exportIncomeReport'
 import { calcDistanceFromHome } from '../lib/distanceCalc'
 import { analyzeContractDoc } from '../lib/analyzeContractDoc'
 import { formatILS, formatDate, daysUntil, urgencyClass, urgencyLabel } from '../utils/formatters'
@@ -162,6 +162,9 @@ const recomputeRehearsals = (sessions) => {
   })
 }
 
+// תוויות הפלטפורמות לפרויקט מסחרי — משותף לתצוגת התיבות ולמיפוי סריקת החוזה
+const COMMERCIAL_PLATFORMS = ['אינסטגרם','טיקטוק','יוטיוב','פייסבוק','טלוויזיה','רדיו','שילוט חוצות','אתר אינטרנט','הגעה לאירוע','אחר']
+
 const EMPTY_INCOME = {
   name: '', amount: '', expectedDate: '', notes: '', accountId: '',
   sessions: [], agentCommission: false, addVat: false, invoiceSent: false, invoiceFile: null, invoiceFileName: null,
@@ -257,12 +260,15 @@ const formatSessionDetail = (ws) => {
   if (ws.type === 'יום צילום') {
     const parts = []
     if (timeStr) parts.push(timeStr)
-    if (ws.workHours != null && ws.workHours !== '') {
+    const effHours = (ws.workHours != null && ws.workHours !== '')
+      ? Number(ws.workHours)
+      : (ws.shootStart && ws.shootEnd ? roundUpQuarter(timeDiffHours(ws.shootStart, ws.shootEnd)) : null)
+    if (effHours != null && effHours > 0) {
       if (ws.useTravelForCalc && ws.travelHours) {
-        parts.push(`${ws.travelHours} שעות (דלת לדלת) · צילום ${ws.workHours}`)
+        parts.push(`${ws.travelHours} שעות (דלת לדלת) · צילום ${effHours}`)
       } else {
         const travel = (ws.travelHours != null && ws.travelHours > 0) ? ` · כולל נסיעות ${ws.travelHours}` : ''
-        parts.push(`${ws.workHours} שעות${travel}`)
+        parts.push(`${effHours} שעות${travel}`)
       }
     }
 
@@ -440,9 +446,13 @@ export default function IncomePage() {
   const [form,         setForm]       = useState(EMPTY_INCOME)
   const [filter,       setFilter]     = useState('pending')
   const [ownerFilter,  setOwnerFilter] = useState('all') // 'all' | 'tomer' | 'yael'
-  // חלון ייצוא לסוכנות — שומר את תאריך החיתוך הנבחר (ברירת מחדל: היום)
-  const [exportCutoff, setExportCutoff] = useState('')
-  const [showExport,   setShowExport]   = useState(false)
+  // חלון "מסמך תיעוד / דיווח" — טווח תאריכים (מ/עד) + ערוץ פעולה
+  const [exportCutoff,  setExportCutoff]  = useState('')   // עד תאריך (ברירת מחדל: היום)
+  const [exportFrom,    setExportFrom]    = useState('')   // מתאריך (ברירת מחדל: תחילת פרויקט)
+  const [exportChannel, setExportChannel] = useState('save') // 'save' | 'email' | 'whatsapp'
+  const [exportEmail,   setExportEmail]   = useState('')
+  const [exportPhone,   setExportPhone]   = useState('')
+  const [showExport,    setShowExport]    = useState(false)
   const [workModal,    setWorkModal]  = useState(null) // { item }
   const [sessForm,     setSessForm]   = useState(EMPTY_SESSION)
   const [receiveModal, setReceiveModal] = useState(null) // { item }
@@ -489,7 +499,8 @@ export default function IncomePage() {
         if (result.theaterPostRehearsal != null) updated.theaterPostRehearsal = result.theaterPostRehearsal
         // Commercial fields
         if (result.commercialClient) updated.commercialClient = result.commercialClient
-        if (result.commercialPlatform) updated.commercialPlatform = result.commercialPlatform
+        if (Array.isArray(result.commercialPlatformList))
+          updated.commercialPlatformList = result.commercialPlatformList.filter(p => COMMERCIAL_PLATFORMS.includes(p))
         if (result.commercialShootDaysContract != null) updated.commercialShootDaysContract = result.commercialShootDaysContract
         return updated
       })
@@ -662,7 +673,9 @@ export default function IncomePage() {
         shootStart: newSess.shootStart || null,
         shootEnd:   newSess.shootEnd   || null,
         returnTime: newSess.returnTime || null,
-        workHours:   shootH || null,
+        workHours: (newSess.workHours !== '' && newSess.workHours != null)
+          ? (Number(newSess.workHours) || null)
+          : null,
         travelHours: travelH,
         useTravelForCalc: useTravel,
         photoDayRateUsed: rate,
@@ -974,7 +987,9 @@ export default function IncomePage() {
       setNewSess({ ...EMPTY_NEW_SESS, type: defaultSessType() })
     }
   }
-  const closeModal = () => { setModal(null); setEditingSessId(null); setNewSess(EMPTY_NEW_SESS); setContractFile(null) }
+  // נעילת-שמירה: מונעת יצירת כפילות מלחיצה כפולה על "שמור". מתאפסת בכל סגירת חלון.
+  const savingRef = useRef(false)
+  const closeModal = () => { savingRef.current = false; setModal(null); setEditingSessId(null); setNewSess(EMPTY_NEW_SESS); setContractFile(null) }
 
   // חזרה/מדידה בודדת בפרויקט מקבלת רצפת 30%. ההערה מוצגת רק כשתוספת רישום *תקטין* את הסכום (עד שעתיים).
   const isRehearsalSingleBonus = (ws) => {
@@ -986,6 +1001,8 @@ export default function IncomePage() {
   }
 
   const save = () => {
+    if (savingRef.current) return   // הגנה מפני לחיצה כפולה — שמירה אחת בלבד לכל פתיחת חלון
+    savingRef.current = true
     // אם יש רישום תקף בטופס הרישום החדש שלא נלחץ "+ הוסף רישום" — להוסיפו אוטומטית
     let sessions = form.sessions || []
     const pending = newSess.date ? buildSessionFromNewSess(editingSessId) : null
@@ -1538,7 +1555,7 @@ export default function IncomePage() {
                       <div className="flex-1 h-px bg-amber-300" />
                     </div>
                     <div className="grid grid-cols-2 gap-1 mt-1">
-                      {['אינסטגרם','טיקטוק','יוטיוב','פייסבוק','טלוויזיה','רדיו','שילוט חוצות','אתר אינטרנט','הגעה לאירוע','אחר'].map(p => {
+                      {COMMERCIAL_PLATFORMS.map(p => {
                         const allPlatforms = (form.commercialPlatformList || []).includes('כל פלטפורמה – שיקול דעת הלקוח')
                         return (
                           <label key={p} className={`flex items-center gap-2 text-sm ${allPlatforms ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}>
@@ -2805,7 +2822,7 @@ export default function IncomePage() {
             <Input type="date" value={form.expectedDate} onChange={v => set('expectedDate', v)} />
           </Field>
           <Field label="הערות">
-            <Textarea value={form.notes} onChange={v => set('notes', v)} placeholder="הערות..." />
+            <Textarea value={form.notes} onChange={v => set('notes', v)} placeholder="הערות..." rows={8} />
           </Field>
 
           <SaveButton onClick={save} />
@@ -2814,41 +2831,98 @@ export default function IncomePage() {
               type="button"
               onClick={() => {
                 const today = new Date().toISOString().slice(0, 10)
+                const liveItem = futureIncome.find(f => f.id === modal.item.id) || modal.item
                 setExportCutoff(today)
+                setExportFrom(projectStartDate(liveItem))
+                setExportChannel('save')
+                setExportEmail(liveItem?.productionCompanyEmail || '')
+                setExportPhone(liveItem?.productionCompanyPhone || '')
                 setShowExport(true)
               }}
               className="w-full bg-indigo-50 text-indigo-700 text-sm font-semibold py-3 rounded-xl mt-2 active:bg-indigo-100"
             >
-              📄 ייצא דיווח לסוכנות
+              📄 מסמך תיעוד / דיווח
             </button>
           )}
           {modal !== 'add' && <DeleteButton onClick={remove} />}
         </Modal>
       )}
 
-      {/* ── חלון ייצוא דיווח לסוכנות ── */}
-      {showExport && modal?.item && (
-        <Modal
-          title="ייצוא דיווח לסוכנות"
-          onClose={() => setShowExport(false)}
-          onSave={() => {
-            const liveItem = futureIncome.find(f => f.id === modal.item.id) || modal.item
-            // לאסוף את הרישומים הנוכחיים מהטופס + רישום ממתין בטופס הרישום החדש (אם יש),
-            // כך שגם רישומים שטרם נשמרו יופיעו בדיווח.
-            let mergedSessions = form.sessions || liveItem.sessions || []
-            const pending = newSess.date ? buildSessionFromNewSess(editingSessId) : null
-            if (pending) {
-              mergedSessions = editingSessId
-                ? mergedSessions.map(w => w.id === editingSessId ? pending : w)
-                : [...mergedSessions, pending]
-            }
-            exportIncomeReport(liveItem, exportCutoff || new Date().toISOString().slice(0, 10), { overrideSessions: mergedSessions })
+      {/* ── חלון "מסמך תיעוד / דיווח" — טווח תאריכים + שמירה/הדפס · מייל · וואטסאפ ── */}
+      {showExport && modal?.item && (() => {
+        const liveItem = futureIncome.find(f => f.id === modal.item.id) || modal.item
+        const cutoff = exportCutoff || new Date().toISOString().slice(0, 10)
+        const fromDate = exportFrom || projectStartDate(liveItem)
+
+        // לאסוף את הרישומים הנוכחיים מהטופס + רישום ממתין (טרם נשמר), כך שגם הם יופיעו בדיווח.
+        const collectSessions = () => {
+          let merged = form.sessions || liveItem.sessions || []
+          const pending = newSess.date ? buildSessionFromNewSess(editingSessId) : null
+          if (pending) {
+            merged = editingSessId
+              ? merged.map(w => w.id === editingSessId ? pending : w)
+              : [...merged, pending]
+          }
+          return merged
+        }
+
+        // נרמול טלפון ישראלי ל-wa.me: ספרות בלבד, 0→972. ריק אם לא תקין.
+        const waNum = (phone) => {
+          let d = String(phone || '').replace(/\D/g, '')
+          if (!d) return ''
+          if (d.startsWith('972')) { /* כבר בינלאומי */ }
+          else if (d.startsWith('0')) d = '972' + d.slice(1)
+          else if (d.length === 9) d = '972' + d
+          if (d.length < 11 || d.length > 13) return ''
+          return d
+        }
+
+        const doAction = () => {
+          const overrideSessions = collectSessions()
+          if (exportChannel === 'save') {
+            exportIncomeReport(liveItem, cutoff, { fromDate, overrideSessions })
             setShowExport(false)
-          }}
+            return
+          }
+          const { subject, text } = buildReportSummaryText(liveItem, { fromDate, toDate: cutoff, overrideSessions })
+          if (exportChannel === 'email') {
+            const to = (exportEmail || '').trim()
+            window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`
+            setShowExport(false)
+            return
+          }
+          // whatsapp
+          const num = waNum(exportPhone)
+          if (!num) { alert('אין מספר טלפון תקין לוואטסאפ'); return }
+          window.open(`https://wa.me/${num}?text=${encodeURIComponent(text)}`, '_blank')
+          setShowExport(false)
+        }
+
+        const CHANNELS = [
+          ['save',     '💾 שמירה/הדפס'],
+          ['email',    '✉️ מייל'],
+          ['whatsapp', '🟢 וואטסאפ'],
+        ]
+        const actionLabel = exportChannel === 'save' ? '📄 צור מסמך'
+          : exportChannel === 'email' ? '✉️ פתח מייל' : '🟢 פתח וואטסאפ'
+
+        return (
+        <Modal
+          title="מסמך תיעוד / דיווח"
+          onClose={() => setShowExport(false)}
+          onSave={doAction}
         >
-          <p className="text-xs text-gray-500 mb-2">
-            ייווצר דיווח המכיל את כל ימי העבודה שתאריכם עד וכולל התאריך שנבחר.
+          <p className="text-xs text-gray-500 mb-3">
+            תיעוד ימי העבודה/האירועים בין שני התאריכים. ברירת המחדל — מתחילת הפרויקט ועד היום.
           </p>
+          <Field label="מתאריך (תחילת פרויקט)">
+            <Input
+              type="date"
+              value={exportFrom}
+              onChange={v => setExportFrom(v)}
+              style={{ maxWidth: '100%', boxSizing: 'border-box' }}
+            />
+          </Field>
           <Field label="עד תאריך">
             <Input
               type="date"
@@ -2857,27 +2931,44 @@ export default function IncomePage() {
               style={{ maxWidth: '100%', boxSizing: 'border-box' }}
             />
           </Field>
+
+          <Field label="פעולה">
+            <div className="flex gap-1.5">
+              {CHANNELS.map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setExportChannel(id)}
+                  className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${exportChannel === id ? 'bg-blue-600 text-white shadow' : 'bg-gray-100 text-gray-500'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          {exportChannel === 'email' && (
+            <Field label="נמען (מייל)">
+              <Input type="email" value={exportEmail} onChange={v => setExportEmail(v)} placeholder="כתובת מייל" />
+            </Field>
+          )}
+          {exportChannel === 'whatsapp' && (
+            <Field label="נמען (טלפון)">
+              <Input type="tel" value={exportPhone} onChange={v => setExportPhone(v)} placeholder="מספר טלפון" />
+            </Field>
+          )}
+
           <div className="bg-gray-50 rounded-xl px-3 py-2 text-xs text-gray-500 space-y-0.5">
-            <p>• הדיווח יוצג בחלון חדש עם אפשרות הדפסה / שמירה כ-PDF</p>
+            {exportChannel === 'save' && <p>• הדיווח יוצג בחלון חדש עם אפשרות הדפסה / שמירה כ-PDF</p>}
+            {exportChannel === 'email' && <p>• ייפתח לקוח המייל עם טקסט-סיכום מוכן. למסמך המעוצב המלא — בחר "שמירה/הדפס"</p>}
+            {exportChannel === 'whatsapp' && <p>• ייפתח וואטסאפ עם טקסט-סיכום מוכן. למסמך המעוצב המלא — בחר "שמירה/הדפס"</p>}
             <p>• הסכום מוצג גולמי — ללא עמלת סוכן וללא מע״מ</p>
-            <p>• מופיעה הערה: "הסכום הנ״ל לפני מע״מ"</p>
           </div>
-          <SaveButton onClick={() => {
-            const liveItem = futureIncome.find(f => f.id === modal.item.id) || modal.item
-            // לאסוף את הרישומים הנוכחיים מהטופס + רישום ממתין בטופס הרישום החדש (אם יש),
-            // כך שגם רישומים שטרם נשמרו יופיעו בדיווח.
-            let mergedSessions = form.sessions || liveItem.sessions || []
-            const pending = newSess.date ? buildSessionFromNewSess(editingSessId) : null
-            if (pending) {
-              mergedSessions = editingSessId
-                ? mergedSessions.map(w => w.id === editingSessId ? pending : w)
-                : [...mergedSessions, pending]
-            }
-            exportIncomeReport(liveItem, exportCutoff || new Date().toISOString().slice(0, 10), { overrideSessions: mergedSessions })
-            setShowExport(false)
-          }} label="צור דיווח" />
+
+          <SaveButton onClick={doAction} label={actionLabel} />
         </Modal>
-      )}
+        )
+      })()}
 
       {/* ── חלון תשלום חלקי — מוצג מעל חלון העריכה ── */}
       {showPartialModal && modal?.item && (

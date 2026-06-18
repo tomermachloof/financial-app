@@ -3,6 +3,7 @@ import useStore from '../store/useStore'
 import Modal, { Field, Input, Select, Textarea, SaveButton, DeleteButton } from '../components/Modal'
 import { formatILS, formatDate, daysUntil, urgencyClass } from '../utils/formatters'
 import { calcTotalLiquidity } from '../utils/calculations'
+import BackupRestoreModal from '../components/BackupRestoreModal'
 
 // ─── Account Modal ────────────────────────────────────────────────────────
 const BANK_OPTIONS = [
@@ -49,6 +50,7 @@ export default function AccountsPage() {
   } = useStore()
 
   const [section, setSection] = useState('accounts') // accounts | investments | debts
+  const [showBackup, setShowBackup] = useState(false)
   const [modal,   setModal]   = useState(null)
   const [form,    setForm]    = useState({})
 
@@ -134,7 +136,10 @@ export default function AccountsPage() {
     <div className="page-content">
       {/* Header */}
       <div className="bg-white border-b border-gray-100 px-4 pt-4 pb-4 sticky top-0 z-10">
-        <h1 className="text-xl font-bold text-gray-800 mb-3">חשבונות ונכסים</h1>
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-xl font-bold text-gray-800">חשבונות ונכסים</h1>
+          <button onClick={() => setShowBackup(true)} className="text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg active:scale-95">🛟 גיבויים</button>
+        </div>
 
         {/* 3 accurate summary cards */}
         <div className="grid grid-cols-3 gap-2 mb-3">
@@ -359,6 +364,8 @@ export default function AccountsPage() {
           {modal.mode === 'edit' && <DeleteButton onClick={removeDebt} />}
         </Modal>
       )}
+
+      {showBackup && <BackupRestoreModal onClose={() => setShowBackup(false)} />}
     </div>
   )
 }

@@ -1,42 +1,41 @@
 import { useEffect } from 'react'
 import useStore from '../store/useStore'
 
-async function fetchRate(currency) {
-  const res  = await fetch(`https://www.boi.org.il/PublicApi/GetExchangeRates?key=${currency}`)
+async function fetchRates() {
+  const res  = await fetch('https://open.er-api.com/v6/latest/ILS')
   const data = await res.json()
-  const entry = data?.exchangeRates?.find(r =>
-    r.key?.toUpperCase() === currency.toUpperCase()
-  )
-  const rate = entry?.currentExchangeRate ?? null
-  if (rate != null && (rate < 2 || rate > 8)) return null
-  return rate
+  if (data?.result !== 'success') return null
+  const rates = data.rates
+  const usd = rates?.USD ? 1 / rates.USD : null
+  const eur = rates?.EUR ? 1 / rates.EUR : null
+  return { usd, eur }
 }
 
-const monthKey = (ts) => {
+const dayKey = (ts) => {
   const d = new Date(ts)
-  return `${d.getFullYear()}-${d.getMonth() + 1}`
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
 }
 
 /**
- * שולף שערי יורו ודולר מבנק ישראל.
- * מתרענן פעם אחת בכל 1 לחודש.
+ * שולף שערי יורו ודולר. מתרענן פעם אחת ביום.
  */
 export default function useLiveRates() {
   const { ratesLastFetched, setEurRate, setUsdRate, setRatesLastFetched } = useStore()
 
   useEffect(() => {
-    const now         = Date.now()
-    const lastMonth   = ratesLastFetched ? monthKey(ratesLastFetched) : null
-    const currentMonth = monthKey(now)
+    const now        = Date.now()
+    const lastDay    = ratesLastFetched ? dayKey(ratesLastFetched) : null
+    const currentDay = dayKey(now)
 
-    if (lastMonth === currentMonth) return // כבר עודכן החודש
+    if (lastDay === currentDay) return // כבר עודכן היום
 
-    Promise.all([fetchRate('EUR'), fetchRate('USD')])
-      .then(([eur, usd]) => {
-        if (eur) setEurRate(eur)
-        if (usd) setUsdRate(usd)
+    fetchRates()
+      .then((rates) => {
+        if (!rates) return
+        if (rates.eur) setEurRate(Math.round(rates.eur * 10000) / 10000)
+        if (rates.usd) setUsdRate(Math.round(rates.usd * 10000) / 10000)
         setRatesLastFetched(now)
       })
       .catch(() => {})
-  }, [])
+  }, [ratesLastFetched])
 }

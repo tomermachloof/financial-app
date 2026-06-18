@@ -652,7 +652,7 @@ const useStore = create(
     }),
     {
       name: 'financial-app-v14',
-      version: 47,
+      version: 48,
       migrate: (state) => {
         // ── v19: accountId fields + e1→e1a/e1b split ──────────────────────
         const loanUpdates = {
@@ -719,9 +719,9 @@ const useStore = create(
 
         return {
           ...state,
-          eurRate:         3.6283,
-          usdRate:         (state.usdRate && state.usdRate >= 3.0) ? state.usdRate : 3.61, // USD rate נשמר כפי שנשלף מהבנק
-          ratesLastFetched: Date.now(),
+          eurRate:         (state.eurRate && state.eurRate >= 1.5) ? state.eurRate : 3.6283,
+          usdRate:         (state.usdRate && state.usdRate >= 1.5) ? state.usdRate : 3.61,
+          ratesLastFetched: null,
           debts: debtsWithNursery,
           deletedIds: {
             ...(state.deletedIds || {}),
@@ -891,7 +891,8 @@ export function patchCloudState(state) {
   if (!s.reminders) s.reminders = []
   if (!s.dismissedEvents) s.dismissedEvents = []
 
-  // v43: תיקון שער יורו שגוי (הוסר — כבר לא כופים ערך קבוע)
+  // תמיד מאפסים ratesLastFetched כדי לאלץ שליפת שערים חיים בטעינה
+  s.ratesLastFetched = null
 
   return s
 }

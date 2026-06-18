@@ -131,14 +131,14 @@ export function Select({ value, onChange, options }) {
   )
 }
 
-export function Textarea({ value, onChange, placeholder }) {
+export function Textarea({ value, onChange, placeholder, rows = 2 }) {
   return (
     <textarea
       value={value ?? ''}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
-      rows={2}
-      className="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500 bg-gray-50 resize-none"
+      rows={rows}
+      className="app-textarea w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500 bg-gray-50 resize-y"
     />
   )
 }

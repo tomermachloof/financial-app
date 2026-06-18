@@ -58,6 +58,22 @@ html, body {
   border-radius: 9999px;
 }
 
+/* Textarea — סקרולבר דק לימין (RTL), באותו סגנון כמו .scroll-right */
+.app-textarea {
+  direction: ltr;
+  text-align: right;
+}
+.app-textarea::-webkit-scrollbar {
+  width: 5px;
+}
+.app-textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+.app-textarea::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 9999px;
+}
+
 /* Number inputs: keep LTR for numbers */
 input[type="number"] {
   direction: ltr;

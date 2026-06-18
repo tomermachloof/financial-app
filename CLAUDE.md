@@ -1,5 +1,10 @@
 # הוראות לפרויקט financial-app
 
+## טעינת הקשר בתחילת כל שיחה
+בתחילת כל שיחה חדשה, קרא את הקובץ:
+`C:\Users\yaele\.claude\projects\c--Users-yaele-Desktop-AI-LEARNING-1-financial-app\memory\MEMORY.md`
+ואז קרא את הקבצים הרלוונטיים לפי האינדקס שם — כדי להבין את מצב הפרויקט לפני שמתחילים.
+
 ## עדכון memory
 לפני סיום כל שיחה, תומר יגיד "עדכן memory".
 אז יש לעדכן את קבצי ה-memory ב:

@@ -148,21 +148,31 @@ const escapeHtml = (s) => String(s == null ? '' : s)
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;')
 
-// הפרמטר options.overrideSessions (אופציונלי) — רשימת רישומים לקחת מהטופס
-// במקום מהפריט עצמו, כדי לכלול גם רישומים שטרם נשמרו לענן.
-export function exportIncomeReport(item, cutoffDate, options = {}) {
-  if (!item) return
+// תאריך ההתחלה של הפרויקט — הרישום המוקדם ביותר, אחרת היום (ברירת מחדל ל"מתאריך").
+export function projectStartDate(item) {
+  const sessions = (item && item.sessions) || []
+  const dates = sessions.map(s => s.date).filter(Boolean).sort()
+  return dates[0] || new Date().toISOString().slice(0, 10)
+}
 
-  // סינון רישומים עד תאריך החיתוך כולל
+// איסוף הרישומים בטווח [fromDate, cutoffDate] (כולל) + חישוב סכומים.
+// משותף לייצוא ה-HTML ולטקסט-הסיכום, כדי שלא תהיה לוגיקה כפולה.
+function collectReportData(item, cutoffDate, options = {}) {
   const cutoff = new Date(cutoffDate)
   cutoff.setHours(23, 59, 59, 999)
+  const from = options.fromDate ? new Date(options.fromDate) : null
+  if (from) from.setHours(0, 0, 0, 0)
+
   const sourceSessions = Array.isArray(options.overrideSessions)
     ? options.overrideSessions
     : (item.sessions || [])
   const sessions = sourceSessions
     .filter(ws => {
       if (!ws.date) return true
-      return new Date(ws.date) <= cutoff
+      const d = new Date(ws.date)
+      if (d > cutoff) return false
+      if (from && d < from) return false
+      return true
     })
     // סידור לפי תאריך
     .slice()
@@ -185,8 +195,56 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
   const alreadyReceived = payments.reduce((s, p) => s + (p.amount || 0), 0)
   const remaining = total - alreadyReceived
 
+  return { sessions, isCommercial, total, alreadyReceived, remaining }
+}
+
+// טקסט-סיכום קצר לשליחה ידנית (וואטסאפ / מייל) — מחזיר { subject, text }.
+export function buildReportSummaryText(item, options = {}) {
+  if (!item) return { subject: '', text: '' }
+  const cutoffDate = options.toDate || new Date().toISOString().slice(0, 10)
+  const { sessions, isCommercial, total, alreadyReceived, remaining } =
+    collectReportData(item, cutoffDate, options)
+
+  const fromStr = options.fromDate ? formatDate(options.fromDate) : null
+  const toStr = formatDate(cutoffDate)
+  const period = fromStr ? `${fromStr} – ${toStr}` : `עד ${toStr}`
+
+  const lines = []
+  lines.push(`דיווח עבודה — ${item.name || 'פרויקט'}`)
+  lines.push(`תקופה: ${period}`)
+  lines.push('')
+  if (sessions.length > 0) {
+    sessions.forEach(ws => {
+      const d = ws.date ? formatDate(ws.date) : 'ללא תאריך'
+      const amt = isCommercial ? '' : ` — ₪${(ws.amount || 0).toLocaleString()}`
+      lines.push(`• ${d} — ${ws.type || '—'}${amt}`)
+    })
+    lines.push('')
+  }
+  lines.push(`סה״כ עבודה: ₪${total.toLocaleString()}`)
+  if (alreadyReceived > 0) {
+    lines.push(`כבר התקבל: ₪${alreadyReceived.toLocaleString()}`)
+    lines.push(`יתרה לתשלום: ₪${remaining.toLocaleString()}`)
+  }
+  lines.push('')
+  lines.push('* הסכומים הנ״ל לא כוללים עמלת סוכן ומע״מ')
+
+  const subject = `דיווח עבודה — ${item.name || 'פרויקט'} (${period})`
+  return { subject, text: lines.join('\n') }
+}
+
+// הפרמטר options.overrideSessions (אופציונלי) — רשימת רישומים לקחת מהטופס
+// במקום מהפריט עצמו, כדי לכלול גם רישומים שטרם נשמרו לענן.
+// options.fromDate (אופציונלי) — תאריך התחלה לטווח הדיווח (אחרת מתחילת הפרויקט).
+export function exportIncomeReport(item, cutoffDate, options = {}) {
+  if (!item) return
+
+  const { sessions, isCommercial, total, alreadyReceived, remaining } =
+    collectReportData(item, cutoffDate, options)
+
   const todayStr  = new Date().toLocaleDateString('he-IL')
   const cutoffStr = formatDate(cutoffDate)
+  const fromStr   = options.fromDate ? formatDate(options.fromDate) : null
 
   // בניית שורות הטבלה
   const rowsHtml = sessions.length > 0
@@ -427,7 +485,7 @@ export function exportIncomeReport(item, cutoffDate, options = {}) {
     <div class="info-row"><span class="info-label">עבור:</span><span class="info-value">${escapeHtml(ownerLabel(item.owner))}</span></div>
     <div class="info-row"><span class="info-label">שם הפרויקט:</span><span class="info-value">${safeName}</span></div>
     <div class="info-row"><span class="info-label">תאריך הפקה:</span><span class="info-value">${escapeHtml(todayStr)}</span></div>
-    <div class="info-row"><span class="info-label">תקופת דיווח:</span><span class="info-value">עד ${escapeHtml(cutoffStr)}</span></div>
+    <div class="info-row"><span class="info-label">תקופת דיווח:</span><span class="info-value">${fromStr ? `${escapeHtml(fromStr)} – ${escapeHtml(cutoffStr)}` : `עד ${escapeHtml(cutoffStr)}`}</span></div>
   </div>
 
   <table>
