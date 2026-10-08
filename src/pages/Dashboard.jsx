@@ -11,6 +11,7 @@ import {
   calcMonthlyOut, calcMonthlyIn, getUpcomingEvents, calcRemainingBalance,
 } from '../utils/calculations'
 import { formatILS, formatDateShort, daysUntil } from '../utils/formatters'
+import { isIlsAccount, isOtherFxAccount, accountBalance, isForeign, toILS, currencySymbol, formatMoney, rateToILS } from '../utils/currencies'
 import { getPushStatus, subscribeToPush, unsubscribeFromPush, autoRefreshSubscription } from '../lib/pushNotifications'
 
 const colorMap = {
@@ -27,7 +28,7 @@ const RANGE_OPTIONS = [
 ]
 
 export default function Dashboard() {
-  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, updateExpenseMonthlyAccount, updateLoan, updateExpense, updateRentalIncome, updateFutureIncome, updateLoanMonthlyAmount, updateLoanMonthlyAccount, updateRentalMonthlyAmount, updateRentalMonthlyAccount, reminders, doneReminder, doneReminderMonth, undoneReminder, undoneReminderMonth, deleteReminder, updateReminder, updateInvestment, updateAccount, deleteFutureIncome, deleteExpense, deleteRentalIncome, dismissedEvents, dismissEvent, undismissEvent } = useStore()
+  const { accounts, investments, loans, expenses, rentalIncome, futureIncome, debts, eurRate, usdRate, rates: allRates, confirmedEvents, confirmEvent, unconfirmEvent, updateDebt, discountTransferDone, confirmDiscountTransfer, undoDiscountTransfer, friendReminders, setFriendReminderSent, undoFriendReminderSent, setFriendMoneyReceived, undoFriendMoneyReceived, updateExpenseMonthlyAmount, updateExpenseMonthlyAccount, updateLoan, updateExpense, updateRentalIncome, updateFutureIncome, updateLoanMonthlyAmount, updateLoanMonthlyAccount, updateRentalMonthlyAmount, updateRentalMonthlyAccount, reminders, doneReminder, doneReminderMonth, undoneReminder, undoneReminderMonth, deleteReminder, updateReminder, updateInvestment, updateAccount, deleteFutureIncome, deleteExpense, deleteRentalIncome, dismissedEvents, dismissEvent, undismissEvent } = useStore()
 
   const [rangeDays, setRangeDays] = useState(14)
   const [filterType, setFilterType] = useState('all') // 'all' | 'income' | 'expense'
@@ -104,10 +105,10 @@ export default function Dashboard() {
   }
 
 
-  const liquidity    = calcTotalLiquidity(accounts, usdRate)
-  const ilsLiquidity = accounts.filter(a => a.currency !== 'USD').reduce((s, a) => s + (a.balance || 0), 0)
+  const liquidity    = calcTotalLiquidity(accounts, usdRate, allRates)
+  const ilsLiquidity = accounts.filter(a => isIlsAccount(a)).reduce((s, a) => s + (a.balance || 0), 0)
   const usdLiquidity = accounts.filter(a => a.currency === 'USD').reduce((s, a) => s + (a.usdBalance || 0), 0)
-  const rates        = { eur: eurRate, usd: usdRate }
+  const rates        = { eur: eurRate, usd: usdRate, all: allRates }
   const netWorth     = calcNetWorth(accounts, investments, loans, debts, rates)
   const mortgageTotal = loans.filter(l => l.type === 'mortgage').reduce((s, l) => {
     const { balance } = calcRemainingBalance(l)
@@ -193,7 +194,7 @@ export default function Dashboard() {
   const eventsUntil20 = getUpcomingEvents(loans, expenses, rentalIncome, futureIncome, daysUntilTransfer, usdRate, 0)
 
   const discountSourceAccounts = accounts
-    .filter(a => a.currency !== 'USD' && !DISCOUNT_IDS.includes(a.id))
+    .filter(a => isIlsAccount(a) && !DISCOUNT_IDS.includes(a.id))
     .map(a => {
       const charges = eventsUntil20
         .filter(e => e.accountId === a.id && e.amount < 0 && !e.noBalanceEffect && !e.paidViaCredit)
@@ -913,7 +914,7 @@ export default function Dashboard() {
       {showAccountsModal && (() => {
         const isUSDModal = showAccountsModal === 'USD'
         const filtered = accounts
-          .filter(a => isUSDModal ? a.currency === 'USD' : a.currency !== 'USD')
+          .filter(a => isUSDModal ? a.currency === 'USD' : isIlsAccount(a))
           .slice().sort((a, b) => {
             const balA = isUSDModal ? (a.usdBalance || 0) : (a.balance || 0)
             const balB = isUSDModal ? (b.usdBalance || 0) : (b.balance || 0)
@@ -1003,19 +1004,17 @@ export default function Dashboard() {
 
       {/* Net worth modal */}
       {showNetWorthModal && (() => {
-        const invILS = i => {
-          if (i.currency === 'EUR') return (i.originalAmount || 0) * eurRate
-          if (i.currency === 'USD') return (i.originalAmount || 0) * usdRate
-          return i.value || 0
-        }
-        const ilsAccounts  = accounts.filter(a => a.currency !== 'USD')
+        const invILS = i => isForeign(i.currency) ? toILS(i.originalAmount, i.currency, rates) : (i.value || 0)
+        const ilsAccounts  = accounts.filter(a => isIlsAccount(a))
         const usdAccounts  = accounts.filter(a => a.currency === 'USD')
         const ilsAccTotal  = ilsAccounts.reduce((s, a) => s + (a.balance || 0), 0)
         const usdAccTotal  = usdAccounts.reduce((s, a) => s + (a.usdBalance || 0) * usdRate, 0)
         const invTotal     = investments.reduce((s, i) => s + invILS(i), 0)
-        const debtILS2     = d => d.currency === 'EUR' ? (d.originalAmount||0)*eurRate : d.currency === 'USD' ? (d.originalAmount||0)*usdRate : (d.amount||0)
+        const debtILS2     = d => isForeign(d.currency) ? toILS(d.originalAmount, d.currency, rates) : (d.amount||0)
         const owedToUs     = debts.filter(d => d.type === 'owed_to_us').reduce((s, d) => s + debtILS2(d), 0)
-        const totalAssets  = ilsAccTotal + usdAccTotal + invTotal + owedToUs
+        const fxAccounts   = accounts.filter(a => isOtherFxAccount(a))
+        const fxAccTotal   = fxAccounts.reduce((s, a) => s + toILS(a.foreignBalance, a.currency, rates), 0)
+        const totalAssets  = ilsAccTotal + usdAccTotal + fxAccTotal + invTotal + owedToUs
 
         const friendLoans    = loans.filter(l => l.paidByFriend)
         const regularLoans   = loans.filter(l => !l.paidByFriend)
@@ -1055,16 +1054,17 @@ export default function Dashboard() {
                 <p className="text-xs font-bold text-green-600 mt-2 mb-1">נכסים</p>
                 <Row label="חשבונות ₪" value={ilsAccTotal} indent />
                 <Row label="חשבונות $" value={usdAccTotal} sub={`$${new Intl.NumberFormat('en',{maximumFractionDigits:0}).format(usdLiquidity)} @ ${usdRate}`} indent />
+                {fxAccounts.map(a => (
+                  <Row key={a.id} label={a.name} value={toILS(a.foreignBalance, a.currency, rates)} sub={`${formatMoney(a.foreignBalance, a.currency)} @ ₪${Math.round(rateToILS(a.currency, rates) * 10000) / 10000}`} indent />
+                ))}
                 {investments.map(i => {
-                  const sub = i.currency === 'EUR'
-                    ? `€${(i.originalAmount||0).toLocaleString()} @ ₪${eurRate}`
-                    : i.currency === 'USD'
-                      ? `$${(i.originalAmount||0).toLocaleString()} @ ₪${usdRate}`
-                      : null
+                  const sub = isForeign(i.currency)
+                    ? `${formatMoney(i.originalAmount, i.currency)} @ ₪${Math.round(rateToILS(i.currency, rates) * 10000) / 10000}`
+                    : null
                   return <Row key={i.id} label={i.name} value={invILS(i)} sub={sub} indent />
                 })}
                 {debts.filter(d => d.type === 'owed_to_us').map(d => (
-                  <Row key={d.id} label={`חייבים לנו — ${d.name}`} value={d.amount || 0} indent />
+                  <Row key={d.id} label={`חייבים לנו — ${d.name}`} value={debtILS2(d)} indent />
                 ))}
                 <Row label="סה״כ נכסים" value={totalAssets} bold color="text-green-600" />
 
@@ -1108,8 +1108,8 @@ export default function Dashboard() {
       {/* Investment update popup */}
       {invUpdateRem && (() => {
         const inv = investments.find(i => i.id === invUpdateRem.invId)
-        const isFx = inv?.currency === 'EUR' || inv?.currency === 'USD'
-        const symbol = inv?.currency === 'EUR' ? '€' : inv?.currency === 'USD' ? '$' : '₪'
+        const isFx = isForeign(inv?.currency)
+        const symbol = isFx ? currencySymbol(inv.currency) : '₪'
         const curVal = inv ? (isFx ? inv.originalAmount : inv.value) : null
         const rem = (reminders||[]).find(r => r.id === invUpdateRem.remId)
         const confirmUpdate = () => {
@@ -1417,7 +1417,7 @@ export default function Dashboard() {
       {accountPickerFor && (() => {
         const ev = accountPickerFor
         const isUSD = ev.currency === 'USD'
-        const list = accounts.filter(a => isUSD ? a.currency === 'USD' : a.currency !== 'USD')
+        const list = accounts.filter(a => isUSD ? a.currency === 'USD' : isIlsAccount(a))
         const baseId = cleanId(ev.id)
         const currentId = ev.accountId || null
         const pick = (newId) => {

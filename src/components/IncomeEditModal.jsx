@@ -1,3 +1,4 @@
+import { isIlsAccount } from '../utils/currencies'
 import { useState } from 'react'
 import useStore from '../store/useStore'
 import Modal, { Field, Input, Select, Textarea, SaveButton } from './Modal'
@@ -30,7 +31,7 @@ const getFilesFromItem = (item) => {
 
 export default function IncomeEditModal({ item, onClose }) {
   const { accounts, updateFutureIncome, futureIncome, removeIncomePayment, confirmedEvents } = useStore()
-  const ilsAccounts   = accounts.filter(a => a.currency !== 'USD')
+  const ilsAccounts   = accounts.filter(a => isIlsAccount(a))
   const accountOptions = [
     { value: '', label: 'לא מקושר לחשבון' },
     ...ilsAccounts.map(a => ({ value: a.id, label: a.name })),

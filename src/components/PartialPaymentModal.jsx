@@ -1,3 +1,4 @@
+import { isIlsAccount } from '../utils/currencies'
 import { useState, useEffect } from 'react'
 import useStore from '../store/useStore'
 import Modal, { Field, Input, SaveButton } from './Modal'
@@ -44,7 +45,7 @@ export default function PartialPaymentModal({ item: initialItem, onClose }) {
 
   const filteredAccounts = isUSD
     ? accounts.filter(a => a.currency === 'USD' || a.usdBalance > 0)
-    : accounts.filter(a => a.currency !== 'USD')
+    : accounts.filter(a => isIlsAccount(a))
 
   const [amount, setAmount]       = useState(String(remainingBank > 0 ? remainingBank : ''))
   const [accountId, setAccountId] = useState(initialItem.accountId || '')

@@ -69,6 +69,7 @@ const useStore = create(
       primeRate:       5.5,
       eurRate:         3.6283,
       usdRate:         3.61,
+      rates:           {}, // קוד מטבע → ₪ ליחידה (כל המטבעות)
       ratesLastFetched: null,
       lastSaved:       0,
       deletedIds: { accounts: [], loans: [], expenses: [], futureIncome: [], rentalIncome: [], debts: [], investments: [] },
@@ -638,6 +639,7 @@ const useStore = create(
       setEurRate:   (rate) => set({ eurRate: rate }),
       setUsdRate:   (rate) => set({ usdRate: rate }),
       setRatesLastFetched: (ts) => set({ ratesLastFetched: ts }),
+      setRates:     (rates) => set({ rates }),
       clearShlioConfirmed: () =>
         set(s => {
           const shlioEntries = (s.confirmedEvents || []).filter(e => e.id === 'r5')

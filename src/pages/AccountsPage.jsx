@@ -4,6 +4,7 @@ import Modal, { Field, Input, Select, Textarea, SaveButton, DeleteButton } from 
 import { formatILS, formatDate, daysUntil, urgencyClass } from '../utils/formatters'
 import { calcTotalLiquidity } from '../utils/calculations'
 import BackupRestoreModal from '../components/BackupRestoreModal'
+import { CURRENCY_OPTIONS, isIlsAccount, isOtherFxAccount, accountBalance, isForeign, toILS, rateToILS, currencySymbol, formatMoney } from '../utils/currencies'
 
 // ─── Account Modal ────────────────────────────────────────────────────────
 const BANK_OPTIONS = [
@@ -46,28 +47,22 @@ export default function AccountsPage() {
     accounts,    addAccount,    updateAccount,    deleteAccount,
     investments, addInvestment, updateInvestment, deleteInvestment,
     debts,       addDebt,       updateDebt,       deleteDebt,
-    eurRate, usdRate,
+    loans, expenses, rentalIncome, futureIncome,
+    eurRate, usdRate, rates: allRates,
   } = useStore()
+  const rates = { eur: eurRate, usd: usdRate, all: allRates }
 
   const [section, setSection] = useState('accounts') // accounts | investments | debts
   const [showBackup, setShowBackup] = useState(false)
   const [modal,   setModal]   = useState(null)
   const [form,    setForm]    = useState({})
 
-  const liquidity    = calcTotalLiquidity(accounts, usdRate)
-  const ilsLiquidity = accounts.filter(a => a.currency !== 'USD').reduce((s, a) => s + (a.balance || 0), 0)
+  const liquidity    = calcTotalLiquidity(accounts, usdRate, allRates)
+  const ilsLiquidity = accounts.filter(a => isIlsAccount(a)).reduce((s, a) => s + (a.balance || 0), 0)
   const usdLiquidity = accounts.filter(a => a.currency === 'USD').reduce((s, a) => s + (a.usdBalance || 0), 0)
-  const invILS = (i) => {
-    if (i.currency === 'EUR') return (i.originalAmount || 0) * eurRate
-    if (i.currency === 'USD') return (i.originalAmount || 0) * usdRate
-    return i.value || 0
-  }
+  const invILS = (i) => isForeign(i.currency) ? toILS(i.originalAmount, i.currency, rates) : (i.value || 0)
   const totalSavings = investments.reduce((s, i) => s + invILS(i), 0)
-  const debtILS = (d) => {
-    if (d.currency === 'EUR') return (d.originalAmount || 0) * eurRate
-    if (d.currency === 'USD') return (d.originalAmount || 0) * usdRate
-    return d.amount || 0
-  }
+  const debtILS = (d) => isForeign(d.currency) ? toILS(d.originalAmount, d.currency, rates) : (d.amount || 0)
   const owedToUsTotal = debts.filter(d => d.type === 'owed_to_us').reduce((s, d) => s + debtILS(d), 0)
   const weOweTotal    = debts.filter(d => d.type === 'we_owe').reduce((s, d) => s + debtILS(d), 0)
   const debtsNet      = owedToUsTotal - weOweTotal
@@ -76,35 +71,48 @@ export default function AccountsPage() {
 
   // ── Account handlers ──
   const openAddAccount = () => {
-    setForm({ name: '', bank: 'פועלים', balance: '', owner: 'תומר', type: 'checking' })
+    setForm({ name: '', bank: 'פועלים', balance: '', currency: 'ILS', owner: 'תומר', type: 'checking' })
     setModal({ type: 'account', mode: 'add' })
   }
   const openEditAccount = (acc) => {
-    setForm({ ...acc, usdBalance: acc.usdBalance != null ? Math.round(acc.usdBalance * 100) / 100 : acc.usdBalance })
+    setForm({ ...acc, currency: acc.currency || 'ILS', usdBalance: acc.usdBalance != null ? Math.round(acc.usdBalance * 100) / 100 : acc.usdBalance })
     setModal({ type: 'account', mode: 'edit', id: acc.id })
   }
   const saveAccount = () => {
+    const num = (v) => (v === '' || v == null ? 0 : Number(v))
     const data = {
       ...form,
-      balance:    form.balance    === '' ? 0 : Number(form.balance),
-      usdBalance: form.usdBalance === '' ? 0 : Number(form.usdBalance),
+      balance:        num(form.balance),
+      usdBalance:     num(form.usdBalance),
+      foreignBalance: num(form.foreignBalance),
     }
     if (modal.mode === 'add') addAccount(data)
-    else updateAccount(modal.id, data)
+    else {
+      const old = accounts.find(a => a.id === modal.id)
+      if ((old?.currency || 'ILS') !== (form.currency || 'ILS')) {
+        const linked = [...loans, ...expenses, ...rentalIncome, ...futureIncome].filter(x => x.accountId === modal.id).length
+        if (linked > 0 && !window.confirm(`לחשבון הזה מקושרים ${linked} פריטים (הלוואות / הוצאות / הכנסות) שמחושבים במטבע הקודם. לשנות מטבע בכל זאת?`)) return
+      }
+      updateAccount(modal.id, data)
+    }
     setModal(null)
   }
 
   // ── Investment handlers ──
   const openAddInv = () => {
-    setForm({ name: '', value: '', type: 'investment', owner: 'משותף' })
+    setForm({ name: '', amount: '', currency: 'ILS', type: 'investment', owner: 'משותף' })
     setModal({ type: 'inv', mode: 'add' })
   }
   const openEditInv = (inv) => {
-    setForm({ ...inv })
+    setForm({ ...inv, currency: inv.currency || 'ILS', amount: isForeign(inv.currency) ? inv.originalAmount : inv.value })
     setModal({ type: 'inv', mode: 'edit', id: inv.id })
   }
   const saveInv = () => {
-    const data = { ...form, value: form.value === '' ? 0 : Number(form.value) }
+    const { amount, ...rest } = form
+    const n = amount === '' || amount == null ? 0 : Number(amount)
+    const data = isForeign(form.currency)
+      ? { ...rest, value: 0, originalAmount: n }
+      : { ...rest, currency: 'ILS', value: n, originalAmount: 0 }
     if (modal.mode === 'add') addInvestment(data)
     else updateInvestment(modal.id, data)
     setModal(null)
@@ -112,15 +120,18 @@ export default function AccountsPage() {
 
   // ── Debt handlers ──
   const openAddDebt = () => {
-    setForm({ name: '', amount: '', type: 'owed_to_us', expectedDate: '', notes: '' })
+    setForm({ name: '', amount: '', currency: 'ILS', type: 'owed_to_us', expectedDate: '', notes: '' })
     setModal({ type: 'debt', mode: 'add' })
   }
   const openEditDebt = (debt) => {
-    setForm({ ...debt, expectedDate: debt.expectedDate || '' })
+    setForm({ ...debt, currency: debt.currency || 'ILS', amount: isForeign(debt.currency) ? debt.originalAmount : debt.amount, expectedDate: debt.expectedDate || '' })
     setModal({ type: 'debt', mode: 'edit', id: debt.id })
   }
   const saveDebt = () => {
-    const data = { ...form, amount: form.amount === '' ? 0 : Number(form.amount), expectedDate: form.expectedDate || null }
+    const n = form.amount === '' || form.amount == null ? 0 : Number(form.amount)
+    const data = isForeign(form.currency)
+      ? { ...form, originalAmount: n, amount: Math.round(toILS(n, form.currency, rates)), expectedDate: form.expectedDate || null }
+      : { ...form, currency: 'ILS', amount: n, originalAmount: 0, expectedDate: form.expectedDate || null }
     if (modal.mode === 'add') addDebt(data)
     else updateDebt(modal.id, data)
     setModal(null)
@@ -194,7 +205,7 @@ export default function AccountsPage() {
               </button>
             </div>
             {accounts.map(acc => {
-              const ilsVal = acc.currency === 'USD' ? (acc.usdBalance || 0) * usdRate : (acc.balance || 0)
+              const ilsVal = acc.currency === 'USD' ? (acc.usdBalance || 0) * usdRate : isOtherFxAccount(acc) ? toILS(acc.foreignBalance, acc.currency, rates) : (acc.balance || 0)
               return (
                 <div key={acc.id} className={`card overflow-hidden cursor-pointer ${BANK_META[acc.bank]?.card || ''}`} onClick={() => openEditAccount(acc)}>
                   <div className={`px-4 py-1.5 flex items-center justify-between ${BANK_META[acc.bank]?.header || 'bg-gray-200'}`}>
@@ -209,6 +220,11 @@ export default function AccountsPage() {
                           <p className="text-base font-bold text-gray-800">
                             ${new Intl.NumberFormat('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(acc.usdBalance)}
                           </p>
+                          <p className="text-xs text-gray-400">{formatILS(ilsVal)}</p>
+                        </>
+                      ) : isOtherFxAccount(acc) ? (
+                        <>
+                          <p className="text-base font-bold text-gray-800">{formatMoney(acc.foreignBalance, acc.currency)}</p>
                           <p className="text-xs text-gray-400">{formatILS(ilsVal)}</p>
                         </>
                       ) : (
@@ -230,7 +246,7 @@ export default function AccountsPage() {
             <div className="flex items-center justify-between">
               <p className="text-sm text-gray-500">
                 סה״כ: <span className="font-bold text-gray-800">
-                  {formatILS(investments.reduce((s, i) => s + (i.value || 0), 0))}
+                  {formatILS(totalSavings)}
                 </span>
               </p>
               <button onClick={openAddInv} className="bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">
@@ -244,11 +260,8 @@ export default function AccountsPage() {
                   <div>
                     <p className="font-semibold text-gray-800">{inv.name}</p>
                     <p className="text-xs text-gray-400">{inv.owner} · {INV_TYPE_OPTIONS.find(o => o.value === inv.type)?.label || inv.type}</p>
-                    {inv.currency === 'EUR' && (
-                      <p className="text-xs text-gray-400">€{new Intl.NumberFormat('en').format(inv.originalAmount)} @ {eurRate?.toFixed(3)}</p>
-                    )}
-                    {inv.currency === 'USD' && (
-                      <p className="text-xs text-gray-400">${new Intl.NumberFormat('en').format(inv.originalAmount)} @ {usdRate?.toFixed(3)}</p>
+                    {isForeign(inv.currency) && (
+                      <p className="text-xs text-gray-400">{formatMoney(inv.originalAmount, inv.currency)} @ {rateToILS(inv.currency, rates).toFixed(3)}</p>
                     )}
                   </div>
                   <p className="text-base font-bold text-green-700">{formatILS(ils)}</p>
@@ -272,10 +285,10 @@ export default function AccountsPage() {
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold text-green-700">חייבים לנו</span>
                   <span className="text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded-full font-bold">
-                    {formatILS(owedToUs.reduce((s, d) => s + (d.amount || 0), 0))}
+                    {formatILS(owedToUs.reduce((s, d) => s + debtILS(d), 0))}
                   </span>
                 </div>
-                {owedToUs.map(d => <DebtCard key={d.id} debt={d} onEdit={() => openEditDebt(d)} eurRate={eurRate} usdRate={usdRate} />)}
+                {owedToUs.map(d => <DebtCard key={d.id} debt={d} onEdit={() => openEditDebt(d)} rates={rates} />)}
               </>
             )}
 
@@ -284,10 +297,10 @@ export default function AccountsPage() {
                 <div className="flex items-center gap-2 mt-2">
                   <span className="text-sm font-semibold text-red-600">אנחנו חייבים</span>
                   <span className="text-xs bg-red-100 text-red-500 px-2 py-0.5 rounded-full font-bold">
-                    {formatILS(weOwe.reduce((s, d) => s + (d.amount || 0), 0))}
+                    {formatILS(weOwe.reduce((s, d) => s + debtILS(d), 0))}
                   </span>
                 </div>
-                {weOwe.map(d => <DebtCard key={d.id} debt={d} onEdit={() => openEditDebt(d)} eurRate={eurRate} usdRate={usdRate} />)}
+                {weOwe.map(d => <DebtCard key={d.id} debt={d} onEdit={() => openEditDebt(d)} rates={rates} />)}
               </>
             )}
           </>
@@ -310,9 +323,14 @@ export default function AccountsPage() {
           <Field label="שם"><Input value={form.name} onChange={v => setF('name', v)} placeholder="שם החשבון" /></Field>
           <Field label="בנק"><Select value={form.bank} onChange={v => setF('bank', v)} options={BANK_OPTIONS} /></Field>
           {modal.mode === 'add' && <Field label="בעלים"><Select value={form.owner} onChange={v => setF('owner', v)} options={OWNER_OPTIONS} /></Field>}
+          <Field label="מטבע"><Select value={form.currency || 'ILS'} onChange={v => setF('currency', v)} options={CURRENCY_OPTIONS} /></Field>
           {form.currency === 'USD' ? (
             <Field label="יתרה ($)">
               <Input type="number" value={form.usdBalance ?? ''} onChange={v => setF('usdBalance', v)} placeholder="0" />
+            </Field>
+          ) : isOtherFxAccount(form) ? (
+            <Field label={`יתרה (${currencySymbol(form.currency)})`}>
+              <Input type="number" value={form.foreignBalance ?? ''} onChange={v => setF('foreignBalance', v)} placeholder="0" />
             </Field>
           ) : (
             <Field label="יתרה (₪)">
@@ -339,8 +357,9 @@ export default function AccountsPage() {
           <Field label="שם"><Input value={form.name} onChange={v => setF('name', v)} placeholder="שם הנכס" /></Field>
           <Field label="סוג"><Select value={form.type} onChange={v => setF('type', v)} options={INV_TYPE_OPTIONS} /></Field>
           {modal.mode === 'add' && <Field label="בעלים"><Select value={form.owner} onChange={v => setF('owner', v)} options={OWNER_OPTIONS} /></Field>}
-          <Field label="שווי (₪)">
-            <Input type="number" value={form.value} onChange={v => setF('value', v)} placeholder="0" />
+          <Field label="מטבע"><Select value={form.currency || 'ILS'} onChange={v => setF('currency', v)} options={CURRENCY_OPTIONS} /></Field>
+          <Field label={`שווי (${currencySymbol(form.currency || 'ILS')})`}>
+            <Input type="number" value={form.amount} onChange={v => setF('amount', v)} placeholder="0" />
           </Field>
           <SaveButton onClick={saveInv} />
           {modal.mode === 'edit' && <DeleteButton onClick={removeInv} />}
@@ -351,7 +370,8 @@ export default function AccountsPage() {
         <Modal title={modal.mode === 'add' ? 'חוב חדש' : 'עריכת חוב'} onClose={() => setModal(null)} onSave={saveDebt}>
           <Field label="שם"><Input value={form.name} onChange={v => setF('name', v)} placeholder="שם האדם" /></Field>
           <Field label="סוג"><Select value={form.type} onChange={v => setF('type', v)} options={DEBT_TYPE_OPTIONS} /></Field>
-          <Field label="סכום (₪)">
+          <Field label="מטבע"><Select value={form.currency || 'ILS'} onChange={v => setF('currency', v)} options={CURRENCY_OPTIONS} /></Field>
+          <Field label={`סכום (${currencySymbol(form.currency || 'ILS')})`}>
             <Input type="number" value={form.amount} onChange={v => setF('amount', v)} placeholder="0" />
           </Field>
           <Field label="תאריך צפוי להחזר" hint="השאר ריק אם לא ידוע">
@@ -370,14 +390,11 @@ export default function AccountsPage() {
   )
 }
 
-function DebtCard({ debt, onEdit, eurRate, usdRate }) {
+function DebtCard({ debt, onEdit, rates }) {
   const days = daysUntil(debt.expectedDate)
   const isOwedToUs = debt.type === 'owed_to_us'
 
-  const ilsAmount =
-    debt.currency === 'EUR' ? (debt.originalAmount || 0) * (eurRate || 3.6283) :
-    debt.currency === 'USD' ? (debt.originalAmount || 0) * (usdRate || 3.61) :
-    (debt.amount || 0)
+  const ilsAmount = isForeign(debt.currency) ? toILS(debt.originalAmount, debt.currency, rates) : (debt.amount || 0)
 
   return (
     <div className="card p-4 cursor-pointer" onClick={onEdit}>
@@ -398,16 +415,10 @@ function DebtCard({ debt, onEdit, eurRate, usdRate }) {
           <p className={`font-bold text-base ${isOwedToUs ? 'text-green-600' : 'text-red-500'}`}>
             {isOwedToUs ? '+' : '-'}{formatILS(ilsAmount)}
           </p>
-          {debt.currency === 'EUR' && (
+          {isForeign(debt.currency) && (
             <p className="text-xs text-gray-400 text-left">
-              €{new Intl.NumberFormat('en').format(debt.originalAmount)}
-              <span className="text-gray-300"> @ {eurRate?.toFixed(3)}</span>
-            </p>
-          )}
-          {debt.currency === 'USD' && (
-            <p className="text-xs text-gray-400 text-left">
-              ${new Intl.NumberFormat('en').format(debt.originalAmount)}
-              <span className="text-gray-300"> @ {usdRate?.toFixed(3)}</span>
+              {formatMoney(debt.originalAmount, debt.currency)}
+              <span className="text-gray-300"> @ {rateToILS(debt.currency, rates).toFixed(3)}</span>
             </p>
           )}
         </div>

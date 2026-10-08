@@ -1,4 +1,5 @@
 // ── Core financial calculations ────────────────────────────────────────────
+import { isForeign, toILS, isOtherFxAccount } from './currencies'
 
 /**
  * מחשב כמה תשלומים בוצעו עד היום
@@ -74,9 +75,10 @@ export const calcRemainingBalance = (loan) => {
 /**
  * סך יתרות עו"ש (נזילות)
  */
-export const calcTotalLiquidity = (accounts, usdRate) =>
+export const calcTotalLiquidity = (accounts, usdRate, allRates) =>
   accounts.reduce((sum, a) => {
     if (a.currency === 'USD') return sum + (a.usdBalance || 0) * (usdRate || 3.61)
+    if (isOtherFxAccount(a)) return sum + toILS(a.foreignBalance, a.currency, { all: allRates })
     return sum + (a.balance || 0)
   }, 0)
 
@@ -84,8 +86,7 @@ export const calcTotalLiquidity = (accounts, usdRate) =>
  * מחשב ערך ₪ של חוב לפי מטבע
  */
 const debtILS = (debt, rates) => {
-  if (debt.currency === 'EUR') return (debt.originalAmount || 0) * (rates?.eur || 3.6283)
-  if (debt.currency === 'USD') return (debt.originalAmount || 0) * (rates?.usd || 3.61)
+  if (isForeign(debt.currency)) return toILS(debt.originalAmount, debt.currency, rates)
   return debt.amount || 0
 }
 
@@ -93,14 +94,14 @@ const debtILS = (debt, rates) => {
  * סך נכסים (כולל חסכונות, השקעות)
  */
 const invILS = (inv, rates) => {
-  if (inv.currency === 'EUR') return (inv.originalAmount || 0) * (rates?.eur || 3.6283)
-  if (inv.currency === 'USD') return (inv.originalAmount || 0) * (rates?.usd || 3.61)
+  if (isForeign(inv.currency)) return toILS(inv.originalAmount, inv.currency, rates)
   return inv.value || 0
 }
 
 export const calcTotalAssets = (accounts, investments, debts, rates) => {
   const liquid   = accounts.reduce((s, a) => {
     if (a.currency === 'USD') return s + (a.usdBalance || 0) * (rates?.usd || 3.61)
+    if (isOtherFxAccount(a)) return s + toILS(a.foreignBalance, a.currency, rates)
     return s + (a.balance || 0)
   }, 0)
   const invested = investments.reduce((s, i) => s + invILS(i, rates), 0)

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import useStore from '../store/useStore'
 import MiniCalendar from './MiniCalendar'
 import DayOfMonthPicker from './DayOfMonthPicker'
+import { isIlsAccount, isOtherFxAccount, accountBalance, isForeign, currencySymbol } from '../utils/currencies'
 
 const ACTIONS = [
   { id: 'reminder',      icon: '🔔', label: 'תזכורת',            desc: 'חד-פעמית או חודשית חוזרת' },
@@ -83,7 +84,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
   const sv = (key, val) => { setForm(prev => ({ ...prev, [key]: val })); setErrors(prev => prev.filter(e => e !== key)) }
   const e  = (key) => errors.includes(key)
 
-  const ilsAccounts = accounts.filter(a => a.currency !== 'USD')
+  const ilsAccounts = accounts.filter(a => isIlsAccount(a))
   const usdAccounts = accounts.filter(a => a.currency === 'USD' || a.usdBalance > 0)
   const todayStr    = new Date().toISOString().split('T')[0]
 
@@ -230,6 +231,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
         if (errs.length) { setErrors(errs); return }
         const acc = accounts.find(a => a.id === fv('accountId'))
         if (acc.currency === 'USD') updateAccount(fv('accountId'), { usdBalance: val })
+        else if (isOtherFxAccount(acc)) updateAccount(fv('accountId'), { foreignBalance: val })
         else                        updateAccount(fv('accountId'), { balance: val })
         flash(); break
       }
@@ -375,7 +377,7 @@ export default function QuickAddModal({ onClose, editTarget }) {
         if (isNaN(val))    errs.push('newValue')
         if (errs.length) { setErrors(errs); return }
         const inv = investments.find(i => i.id === fv('invId'))
-        if (inv?.currency === 'EUR' || inv?.currency === 'USD') {
+        if (isForeign(inv?.currency)) {
           updateInvestment(fv('invId'), { originalAmount: val })
         } else {
           updateInvestment(fv('invId'), { value: val })
@@ -627,20 +629,21 @@ export default function QuickAddModal({ onClose, editTarget }) {
 
       case 'update_balance': {
         const sel = accounts.find(a => a.id === fv('accountId'))
-        const cur = sel ? (sel.currency === 'USD' ? sel.usdBalance : sel.balance) : null
+        const cur = sel ? accountBalance(sel) : null
+        const symOf = (a) => a?.currency === 'USD' ? '$' : isOtherFxAccount(a) ? currencySymbol(a.currency) : '₪'
         return (<>
           <F label="חשבון" name="accountId" errors={errors}>
             <Sel err={e('accountId')} value={fv('accountId')} onChange={ev => {
               const a = accounts.find(x => x.id === ev.target.value)
               sv('accountId', ev.target.value)
-              sv('newBalance', a ? String(a.currency === 'USD' ? (a.usdBalance ?? '') : (a.balance ?? '')) : '')
+              sv('newBalance', a ? String(accountBalance(a)) : '')
             }}>
               <option value="">בחר חשבון</option>
-              {accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.currency === 'USD' ? '$' : '₪'}{((a.currency === 'USD' ? a.usdBalance : a.balance) || 0).toLocaleString()})</option>)}
+              {accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({symOf(a)}{(accountBalance(a) || 0).toLocaleString()})</option>)}
             </Sel>
           </F>
-          {sel && <p className="text-xs text-gray-400 -mt-2 mb-4">יתרה נוכחית: {sel.currency === 'USD' ? '$' : '₪'}{(cur || 0).toLocaleString()}</p>}
-          <F label={`יתרה חדשה (${sel?.currency === 'USD' ? '$' : '₪'})`} name="newBalance" errors={errors}>
+          {sel && <p className="text-xs text-gray-400 -mt-2 mb-4">יתרה נוכחית: {symOf(sel)}{(cur || 0).toLocaleString()}</p>}
+          <F label={`יתרה חדשה (${sel ? symOf(sel) : '₪'})`} name="newBalance" errors={errors}>
             <Inp err={e('newBalance')} type="number" value={fv('newBalance')} onChange={ev => sv('newBalance', ev.target.value)} />
           </F>
         </>)
@@ -691,13 +694,13 @@ export default function QuickAddModal({ onClose, editTarget }) {
       case 'transfer': {
         const fromAcc    = accounts.find(a => a.id === fv('fromId'))
         const isFromUSD  = fromAcc?.currency === 'USD'
-        const compatible = fv('fromId') ? accounts.filter(a => a.id !== fv('fromId')) : accounts
+        const compatible = (fv('fromId') ? accounts.filter(a => a.id !== fv('fromId')) : accounts).filter(a => !isOtherFxAccount(a))
         const ilsInvestments = investments.filter(i => !i.currency || i.currency === 'ILS')
         return (<>
           <F label="מחשבון" name="fromId" errors={errors}>
             <Sel err={e('fromId')} value={fv('fromId')} onChange={ev => { sv('fromId', ev.target.value); sv('toId', '') }}>
               <option value="">בחר</option>
-              {accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.currency === 'USD' ? `$${(a.usdBalance||0).toLocaleString()}` : `₪${(a.balance||0).toLocaleString()}`})</option>)}
+              {accounts.filter(a => !isOtherFxAccount(a)).map(a => <option key={a.id} value={a.id}>{a.name} ({a.currency === 'USD' ? `$${(a.usdBalance||0).toLocaleString()}` : `₪${(a.balance||0).toLocaleString()}`})</option>)}
             </Sel>
           </F>
           <F label="לחשבון / השקעה" name="toId" errors={errors}>
@@ -844,8 +847,8 @@ export default function QuickAddModal({ onClose, editTarget }) {
 
       case 'update_investment': {
         const selInv   = investments.find(i => i.id === fv('invId'))
-        const isFx     = selInv?.currency === 'EUR' || selInv?.currency === 'USD'
-        const symbol   = selInv?.currency === 'EUR' ? '€' : selInv?.currency === 'USD' ? '$' : '₪'
+        const isFx     = isForeign(selInv?.currency)
+        const symbol   = isFx ? currencySymbol(selInv.currency) : '₪'
         const curVal   = selInv ? (isFx ? selInv.originalAmount : selInv.value) : null
         return (<>
           <F label="השקעה" name="invId" errors={errors}>

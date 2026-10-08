@@ -1,3 +1,4 @@
+import { isIlsAccount } from '../utils/currencies'
 import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import useStore from '../store/useStore'
@@ -435,7 +436,7 @@ export default function IncomePage() {
     removeIncomePayment, confirmedEvents,
   } = useStore()
 
-  const ilsAccounts = accounts.filter(a => a.currency !== 'USD')
+  const ilsAccounts = accounts.filter(a => isIlsAccount(a))
   const accountOptions = [
     { value: '', label: 'לא מקושר לחשבון' },
     ...ilsAccounts.map(a => ({ value: a.id, label: a.name })),
